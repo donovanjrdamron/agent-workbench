@@ -110,7 +110,10 @@ def transcript_info(path, limit=14):
         if len(rev) >= limit:
             if custom or title: break
             continue
-        if b'"type":"user"' not in raw[:2000] and b'"type":"assistant"' not in raw[:2000]: continue
+        # the top-level "type" can sit at the start or (after a long message body) near the end of the line
+        if len(raw) > 3_000_000: continue                      # image/tool-output blobs, never chat text
+        ends = raw[:2000] + raw[-4000:]
+        if b'"type":"user"' not in ends and b'"type":"assistant"' not in ends: continue
         try: d = json.loads(raw)
         except Exception: continue
         t = d.get("type")
@@ -123,7 +126,7 @@ def transcript_info(path, limit=14):
         if not text or text.startswith("<") or text.startswith("Caveat:") or text.startswith("[Request interrupted"): continue
         role = "you" if t == "user" else "claude"
         if rev and rev[-1]["role"] == role == "claude": rev[-1]["text"] = text + "\n\n" + rev[-1]["text"]
-        else: rev.append({"role": role, "text": text[:6000]})
+        else: rev.append({"role": role, "text": text[:30000]})
     return list(reversed(rev)), custom or title
 
 def agent_state(card):
