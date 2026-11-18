@@ -1,0 +1,10 @@
+node_modules/
+board/board.json*
+board/history/
+board/canvases/
+board/media/
+board/*.log
+board/*.bak
+board/__pycache__/
+*.pre-*.bak
+.DS_Store

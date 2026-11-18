@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Canvas</title>
+<link rel="icon" href="/icon.png">
+<link rel="stylesheet" href="/canvas-assets/canvas.css">
+<script>window.EXCALIDRAW_ASSET_PATH = "/canvas-assets/";</script>
+<style>
+  html,body,#root{margin:0;height:100%;overflow:hidden;background:#fff}
+  @media (prefers-color-scheme: dark){ html,body,#root{background:#121212} }
+  .cv-top{display:flex;align-items:center;gap:8px}
+  .cv-btn{font:500 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,sans-serif;padding:9px 12px;border-radius:8px;border:0;cursor:pointer;
+          background:var(--island-bg-color,#fff);color:var(--text-primary-color,#1b1b1f);box-shadow:var(--shadow-island,0 0 0 1px rgba(0,0,0,.1))}
+  .cv-btn:hover{filter:brightness(.97)}
+  .cv-dot{width:8px;height:8px;border-radius:50%;background:#c5c5c5}
+  .cv-dot[data-s="retrying"],.cv-dot[data-s="failed"]{background:#e03131}
+  .cv-dot[data-s="uploading"]{background:#228be6}
+  .cv-back{position:fixed;left:62px;top:calc(env(safe-area-inset-top) + 16px);z-index:5;width:36px;height:36px;border-radius:8px;display:grid;place-items:center;
+           text-decoration:none;font:18px/1 -apple-system,sans-serif;color:var(--text-primary-color,#1b1b1f);background:var(--island-bg-color,#fff);
+           box-shadow:var(--shadow-island,0 0 0 1px rgba(0,0,0,.1))}
+  .cv-title{position:fixed;left:108px;top:calc(env(safe-area-inset-top) + 24px);z-index:5;font:600 14px/1.2 -apple-system,BlinkMacSystemFont,sans-serif;
+            color:#6b6b6b;max-width:30vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+  /* keep only what's needed: select, hand, box, arrow, text, image (+ Frame / Video / Note buttons) */
+  .HintViewer, .default-sidebar-trigger, .help-icon,
+  .App-toolbar .ToolIcon:has(> [data-testid="toolbar-lock"]), .ToolIcon__lock,
+  .App-toolbar .ToolIcon:has(> [data-testid="toolbar-diamond"]),
+  .App-toolbar .ToolIcon:has(> [data-testid="toolbar-ellipse"]),
+  .App-toolbar .ToolIcon:has(> [data-testid="toolbar-line"]),
+  .App-toolbar .ToolIcon:has(> [data-testid="toolbar-freedraw"]),
+  .App-toolbar .ToolIcon:has(> [data-testid="toolbar-eraser"]),
+  .App-toolbar__extra-tools-trigger, .App-toolbar__divider { display:none !important; }
+  .App-toolbar .ToolIcon:has(> [data-testid="toolbar-arrow"]) { display:none !important; }
+  .cv-plus{position:fixed;z-index:6;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;border:0;cursor:pointer;
+           background:#228be6;color:#fff;font:600 18px/26px -apple-system,sans-serif;padding:0;box-shadow:0 1px 4px rgba(0,0,0,.25);
+           opacity:.85;transition:opacity .1s,transform .1s}
+  .cv-plus:hover{opacity:1;transform:scale(1.12)}
+  @media (pointer:coarse){ .cv-plus{width:34px;height:34px;margin:-17px 0 0 -17px;line-height:34px;font-size:22px} }
+  .cv-note{background:#228be6 !important;color:#fff !important}
+  /* Claude chat side panel */
+  .cv-btn.on{box-shadow:0 0 0 2px #228be6 !important}
+  .cv-btn .cv-adot{margin-right:4px;vertical-align:1px}
+  .cv-adot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#adb5bd;flex-shrink:0}
+  .cv-adot.working{background:#228be6;animation:cvpulse 1.4s ease-in-out infinite}
+  .cv-adot.waiting{background:#dfab01}
+  @keyframes cvpulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .cv-chat{position:fixed;z-index:7;right:16px;top:calc(env(safe-area-inset-top) + 72px);bottom:16px;width:380px;display:flex;flex-direction:column;
+           background:var(--island-bg-color,#fff);color:var(--text-primary-color,#1b1b1f);border-radius:10px;
+           box-shadow:0 0 0 1px rgba(0,0,0,.08),0 8px 28px rgba(0,0,0,.14);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,sans-serif;overflow:hidden}
+  .cv-chat-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid rgba(0,0,0,.08)}
+  .cv-chat-titles{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+  .cv-chat-titles b{font-size:13px}
+  .cv-chat-titles span{font-size:12px;color:#868e96;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cv-chat-btn{border:1px solid rgba(0,0,0,.1);background:none;border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;color:inherit}
+  .cv-chat-btn:hover{background:rgba(0,0,0,.05)}
+  .cv-chat-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+  .cv-m.md{white-space:normal}
+  .cv-m.md p{margin:0 0 6px}.cv-m.md>:last-child{margin-bottom:0}
+  .cv-m.md ul,.cv-m.md ol{margin:2px 0 6px;padding-left:20px}.cv-m.md li{margin:1px 0}
+  .cv-m.md h3,.cv-m.md h4,.cv-m.md h5,.cv-m.md h6{font-size:1em;font-weight:700;margin:8px 0 3px}
+  .cv-m.md blockquote{margin:4px 0;padding-left:10px;border-left:3px solid rgba(128,128,128,.35);opacity:.85}
+  .cv-m.md code{font:12px ui-monospace,Menlo,monospace;background:rgba(128,128,128,.18);padding:1px 4px;border-radius:3px}
+  .cv-m.md pre{background:rgba(128,128,128,.14);border-radius:6px;padding:8px 10px;overflow-x:auto;margin:4px 0}
+  .cv-m.md pre code{background:none;padding:0}
+  .cv-m.md a{color:#228be6} .cv-m.md hr{border:0;border-top:1px solid rgba(128,128,128,.3);margin:8px 0}
+  .cv-m{white-space:pre-wrap;word-break:break-word;padding:8px 11px;border-radius:10px;max-width:90%;font-size:13.5px}
+  .cv-m.claude{background:rgba(0,0,0,.05);align-self:flex-start}
+  .cv-m.you{background:#d3e5ef;color:#183347;align-self:flex-end}
+  .cv-m.empty{color:#adb5bd;background:none}
+  .cv-chat-send{display:flex;gap:6px;padding:10px;border-top:1px solid rgba(0,0,0,.08)}
+  .cv-chat-send textarea{flex:1;resize:none;border:1px solid rgba(0,0,0,.15);border-radius:8px;padding:8px 10px;font:inherit;outline:none;background:transparent;color:inherit}
+  .cv-chat-send textarea:focus{border-color:#228be6}
+  .cv-chat-send button{background:#228be6;color:#fff;border:0;border-radius:8px;padding:0 14px;font-weight:600;cursor:pointer}
+  .cv-chat-send button:disabled{opacity:.45;cursor:default}
+  @media (prefers-color-scheme: dark){
+    .cv-back{background:#232329;color:#e3e3e8;box-shadow:0 0 0 1px rgba(255,255,255,.1)}
+    .cv-chat{background:#232329;color:#e3e3e8;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 8px 28px rgba(0,0,0,.5)}
+    .cv-chat-titles span{color:#8a8a93}
+    .cv-chat-head,.cv-chat-send{border-color:rgba(255,255,255,.1)} .cv-m.claude{background:rgba(255,255,255,.07)}
+    .cv-m.you{background:#143a4e;color:#e7f1f7} .cv-chat-btn{border-color:rgba(255,255,255,.15)} .cv-chat-send textarea{border-color:rgba(255,255,255,.18)}
+  }
+  @media (max-width:730px){
+    .cv-chat{left:0;right:0;bottom:0;top:auto;height:62vh;width:auto;border-radius:14px 14px 0 0;padding-bottom:env(safe-area-inset-bottom)}
+    .cv-chat .hide-sm{display:none}
+    .cv-chat-send textarea{font-size:16px}
+  }
+  @media (max-width:730px){ .cv-title{display:none} .cv-back{left:auto;right:12px;top:auto;bottom:calc(env(safe-area-inset-bottom) + 76px)} }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/canvas-assets/canvas.js"></script>
+</body>
+</html>

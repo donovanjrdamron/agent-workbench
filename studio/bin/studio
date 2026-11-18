@@ -1,0 +1,202 @@
+#!/usr/bin/env node
+// Agent CLI for Studio. Designs are plain HTML files: write and edit them directly.
+// This CLI tells you what the user changed, what they asked for, and renders your work.
+import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
+import { fileURLToPath } from 'node:url'
+
+const PORT = Number(process.env.STUDIO_PORT || 4517)
+const BASE = `http://127.0.0.1:${PORT}`
+const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+const HELP = `studio: the shared canvas for HTML designs. Editor: ${BASE}
+
+A board is a folder of HTML files (ads, emails, carousels). Each file is one frame on the canvas.
+You design by writing HTML exactly as usual. Saving a file updates the canvas within 2 seconds.
+the user tweaks elements by hand; their tweaks are written into your file as inline styles and text.
+
+  studio boards                              list boards and their folders
+  studio board add <name> <folder>           put a folder of HTML designs on the canvas
+  studio board rm <name>                     take it off (files are untouched)
+  studio designs <board>                     every design file, its size and open comments
+
+Before you edit a design the user has touched:
+  studio changes <board> [design]            what they changed since your last write, element by element
+  studio diff <board> [design]               the same as a diff of your file
+  studio comments <board> [design] [--all]   notes they pinned on the canvas, with the element under each
+  studio selection                           the element they have selected right now, with file and line
+
+Working:
+  studio tree <board> <design>               outline of a file: line, element, text, inline style
+  studio check <board> [design]              does the file follow the authoring rules that keep it editable?
+  studio new <board> <name> [--size 4x5|9x16|1x1|WxH]    scaffold a blank ad (or just write the file)
+  studio copy <board> <design> <new/path.html>           copy a file, e.g. to start the 9:16 version
+  studio shot <board> <design> [--scale 0.5] [--out f.png] [--width N]    render it so you can look
+  studio reply <board> <commentId> "what you changed" [--resolve]
+  studio resolve <board> <commentId>
+  studio comment <board> <design> "note for the user" [--x N --y N]
+  studio accept <board> [design]             mark the current state as read (clears changes and diff)
+
+Safety net (every version of a design the server has seen is kept):
+  studio versions <board> <design>           list saved versions
+  studio restore <board> <design> <n>        put version n back
+  studio revert <board> <design>             drop the user's hand edits, back to your last version
+
+Shipping:
+  studio export <board> <design> [--scale 2] [--format png|jpg|pdf] [--out path-or-dir] [--width N]
+  studio export-all <board> [--match text] [--scale 2] [--format png] [--out dir]
+  studio open [board]                        start the server if needed, print the editor URL
+
+<design> is a path inside the board or any unique part of it: "E-us-vs-them", "E-us-vs-them/index-9x16".
+Ads are exported from their .ad element. Pages without one (emails) export full length at --width.`
+
+async function up(ms = 800) { try { return (await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(ms) })).ok } catch { return false } }
+/** Is something already listening? A busy server is not a dead server: never start a second one. */
+async function listening() {
+  const net = await import('node:net')
+  return new Promise((resolve) => { const s = net.connect(PORT, '127.0.0.1'); s.once('connect', () => { s.destroy(); resolve(true) }); s.once('error', () => resolve(false)) })
+}
+async function ensure() {
+  if (await up()) return
+  if (await listening()) { // running but busy (loading a big board): wait for it
+    for (let i = 0; i < 120; i++) { if (await up(1000)) return; await new Promise((r) => setTimeout(r, 500)) }
+    throw new Error('the server is running but not answering. Check ' + path.join(os.tmpdir(), 'studio.log'))
+  }
+  const log = path.join(os.tmpdir(), 'studio.log')
+  const out = fs.openSync(log, 'a')
+  spawn(path.join(APP, 'node_modules/.bin/tsx'), ['server/index.ts'], { cwd: APP, detached: true, stdio: ['ignore', out, out] }).unref()
+  for (let i = 0; i < 80; i++) { await new Promise((r) => setTimeout(r, 250)); if (await up()) return }
+  throw new Error(`server did not start. See ${log}`)
+}
+async function call(method, url, body) {
+  const r = await fetch(BASE + url, { method, body: body === undefined ? undefined : JSON.stringify(body) })
+  const text = await r.text()
+  if ((r.headers.get('content-type') || '').includes('json')) {
+    const j = JSON.parse(text)
+    if (!r.ok || j.ok === false) throw new Error(j.error || r.statusText)
+    return j
+  }
+  if (!r.ok) throw new Error(text)
+  return text
+}
+function parse(argv) {
+  const pos = [], flags = {}
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a.startsWith('--')) { const n = argv[i + 1]; if (n === undefined || n.startsWith('--')) flags[a.slice(2)] = true; else { flags[a.slice(2)] = n; i++ } }
+    else pos.push(a)
+  }
+  return { pos, flags }
+}
+const q = (o) => Object.entries(o).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+const need = (v, what) => { if (!v) throw new Error(`missing ${what}. Run: studio help`); return v }
+const num = (v) => (v == null || v === true ? undefined : Number(v))
+const time = (ts) => new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+
+async function main() {
+  const [cmd, ...rest] = process.argv.slice(2)
+  const { pos, flags } = parse(rest)
+  if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') return console.log(HELP)
+  await ensure()
+  const board = pos[0]
+  switch (cmd) {
+    case 'open': return console.log(`${BASE}${board ? '/?board=' + encodeURIComponent(board) : ''}`)
+    case 'boards': {
+      const r = await call('GET', '/api/boards')
+      if (!r.boards.length) return console.log('No boards yet. Add one: studio board add <name> <folder>')
+      for (const b of r.boards) console.log(`${b.name}${b.exists ? '' : '  (folder missing)'}\n    ${b.root}`)
+      return
+    }
+    case 'board': {
+      if (pos[0] === 'add') { const r = await call('POST', '/api/boards', { name: need(pos[1], 'name'), root: path.resolve(need(pos[2], 'folder')) }); return console.log(`added "${r.name}" with ${r.designs} designs\n${BASE}/?board=${encodeURIComponent(r.name)}`) }
+      if (pos[0] === 'rm') { await call('POST', '/api/boards', { remove: need(pos[1], 'name') }); return console.log('removed') }
+      throw new Error('use: studio board add <name> <folder> | studio board rm <name>')
+    }
+    case 'designs': {
+      const b = await call('GET', `/api/board?${q({ board: need(board, 'board') })}`)
+      console.log(b.root)
+      for (const d of b.designs) {
+        const open = b.comments.filter((c) => c.design === d.id && !c.resolved).length
+        console.log(`  ${d.id}  ${d.w}x${d.h}${open ? `  ${open} open comment${open > 1 ? 's' : ''}` : ''}`)
+      }
+      return
+    }
+    case 'tree': return process.stdout.write(await call('GET', `/api/tree?${q({ board: need(board, 'board'), design: need(pos[1], 'design') })}`))
+    case 'changes': {
+      const by = flags.all ? '' : flags.by || 'user'
+      const r = await call('GET', `/api/changes?${q({ board: need(board, 'board'), design: pos[1], by, since: flags.all ? '' : flags.since || 'last-agent' })}`)
+      if (!r.changes.length) return console.log('No changes since your last write.')
+      let last = ''
+      for (const c of r.changes) {
+        if (c.design !== last) { console.log(`\n${c.design}`); last = c.design }
+        for (const n of c.notes) console.log(`  ${time(c.ts)}  ${c.by.padEnd(5)}  ${n}`)
+      }
+      return
+    }
+    case 'diff': { const t = await call('GET', `/api/diff?${q({ board: need(board, 'board'), design: pos[1] })}`); return process.stdout.write(t || 'No differences from your last version.\n') }
+    case 'accept': { const r = await call('POST', '/api/accept', { board: need(board, 'board'), design: pos[1] }); return console.log(`baseline updated for ${r.count} design${r.count > 1 ? 's' : ''}`) }
+    case 'selection': {
+      const r = await call('GET', '/api/selection')
+      if (!r.board) return console.log('The editor is not open in a browser.')
+      console.log(`board: ${r.board}`)
+      if (!r.design) return console.log('Nothing selected.')
+      console.log(`file:  ${r.file}`)
+      if (!r.elements.length) return console.log('The whole design is selected, no single element.')
+      for (const e of r.elements) console.log(`\n${e.what}\n${e.html}${e.html.length >= 400 ? '…' : ''}`)
+      return
+    }
+    case 'comments': {
+      const r = await call('GET', `/api/comments?${q({ board: need(board, 'board'), design: pos[1], all: flags.all ? 1 : '' })}`)
+      if (!r.comments.length) return console.log('No open comments.')
+      for (const c of r.comments) {
+        console.log(`${c.id}  ${c.resolved ? 'resolved' : 'OPEN'}  by ${c.author}  ${c.design}  at ${c.x},${c.y}  on ${c.target || 'the design'}`)
+        console.log(`    ${JSON.stringify(c.text)}`)
+        for (const rp of c.replies) console.log(`    ↳ ${rp.by}: ${rp.text}`)
+      }
+      return
+    }
+    case 'reply': await call('POST', '/api/comments', { board: need(board, 'board'), update: { id: need(pos[1], 'commentId'), ...(flags.resolve ? { resolved: true } : {}) }, reply: { by: 'agent', text: need(pos[2], 'reply text') } }); return console.log('ok')
+    case 'resolve': await call('POST', '/api/comments', { board: need(board, 'board'), update: { id: need(pos[1], 'commentId'), resolved: true } }); return console.log('ok')
+    case 'comment': { const r = await call('POST', '/api/comments', { board: need(board, 'board'), design: need(pos[1], 'design'), add: { text: need(pos[2], 'text'), author: 'agent', x: num(flags.x) ?? 40, y: num(flags.y) ?? 40, target: 'the design' } }); return console.log(r.id) }
+    case 'check': {
+      const r = await call('GET', `/api/check?${q({ board: need(board, 'board'), design: pos[1] })}`)
+      let fixes = 0
+      for (const d of r.results) {
+        if (!d.findings.length) { if (pos[1]) console.log(`${d.design}: follows the authoring rules`); continue }
+        console.log(`\n${d.design}`)
+        for (const f of d.findings) { if (f.level === 'fix') fixes++; console.log(`  ${f.level === 'fix' ? 'FIX ' : 'note'}  ${f.msg}`) }
+      }
+      const clean = r.results.filter((d) => !d.findings.length).length
+      console.log(`\n${r.results.length} design${r.results.length > 1 ? 's' : ''} checked, ${clean} clean, ${fixes} thing${fixes === 1 ? '' : 's'} to fix. Rules: apps/studio/AUTHORING.md`)
+      if (fixes) process.exitCode = 1
+      return
+    }
+    case 'versions': {
+      const r = await call('GET', `/api/versions?${q({ board: need(board, 'board'), design: need(pos[1], 'design') })}`)
+      if (!r.versions.length) return console.log('No saved versions yet.')
+      for (const v of r.versions) console.log(`${String(v.n).padStart(3)}  ${time(v.ts)}  ${String(v.bytes).padStart(7)} bytes  ${v.why}`)
+      return
+    }
+    case 'restore': await call('POST', '/api/restore', { board: need(board, 'board'), design: need(pos[1], 'design'), version: need(pos[2], 'version number'), by: 'agent' }); return console.log('restored')
+    case 'revert': { const r = await call('POST', '/api/revert', { board: need(board, 'board'), design: need(pos[1], 'design') }); return console.log(r.changed ? 'reverted' : 'nothing to revert') }
+    case 'new': { const r = await call('POST', '/api/new', { board: need(board, 'board'), name: need(pos[1], 'name'), size: flags.size || '4x5' }); return console.log(r.file) }
+    case 'copy': { const r = await call('POST', '/api/copy', { board: need(board, 'board'), design: need(pos[1], 'design'), to: need(pos[2], 'new path') }); return console.log(r.file) }
+    case 'shot':
+    case 'export': {
+      const shot = cmd === 'shot'
+      const out = flags.out ? path.resolve(String(flags.out)) : shot ? path.join(os.tmpdir(), 'studio-shots', `${Date.now()}.png`) : undefined
+      const r = await call('POST', '/api/export', { board: need(board, 'board'), design: need(pos[1], 'design'), scale: num(flags.scale) ?? (shot ? 0.5 : 2), format: shot ? 'png' : flags.format, quality: num(flags.quality), width: num(flags.width), out })
+      return console.log(`${r.path}  ${r.width}x${r.height}`)
+    }
+    case 'export-all': {
+      const r = await call('POST', '/api/export-all', { board: need(board, 'board'), scale: num(flags.scale) ?? 2, format: flags.format, quality: num(flags.quality), match: flags.match, out: flags.out ? path.resolve(String(flags.out)) : undefined })
+      if (!r.exported.length) return console.log('No designs matched.')
+      for (const e of r.exported) console.log(`${e.path}  ${e.width}x${e.height}`)
+      return
+    }
+    default: throw new Error(`unknown command: ${cmd}. Run: studio help`)
+  }
+}
+main().catch((e) => { console.error(`studio: ${e.message}`); process.exit(1) })

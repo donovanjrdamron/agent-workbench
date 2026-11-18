@@ -1,0 +1,14 @@
+#!/bin/bash
+# List every Claude session that's done and waiting on you, oldest first.
+source "$HOME/.claude/scripts/waiting/lib.sh"
+prune_dead
+now=$(date +%s)
+files=("$WAIT_DIR"/*.json)
+if [ ! -e "${files[0]}" ]; then echo "✓ Nothing waiting on you."; exit 0; fi
+cat "${files[@]}" | jq -rs 'sort_by(.ts)[] | [(.ts|tostring),.title,.cwd,.last,.sid] | @tsv' |
+while IFS=$'\t' read -r ts title cwd last sid; do
+  printf '\n\033[33m⏳ %s\033[0m  \033[2mwaiting %s\033[0m\n' "$title" "$(human_age $((now-ts)))"
+  printf '   📁 %s\n' "${cwd/#$HOME/~}"
+  [ -n "$last" ] && printf '   💬 %s\n' "$(cut -c1-160 <<<"$last")"
+done
+echo

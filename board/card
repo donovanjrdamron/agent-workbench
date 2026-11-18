@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Tiny CLI so Claude sessions can keep the work board honest.
+  card list                      active cards (not Done)
+  card start <id> [focus]        move card to Orchestrating (or Deep focus with "focus")
+  card new "<title>" <brand> [focus]   create a card already in progress
+  card done <id>                 move card to Done
+  card link <id> "<label>" <url> add a link to the card's notes (skips duplicates)
+"""
+import json, os, re, sys, time, fcntl
+DATA = os.path.join(os.path.dirname(os.path.realpath(__file__)), "board.json")
+
+def claude_pid():
+    """The Claude Code process that ran this command (walk up the process tree)."""
+    import subprocess
+    pid = os.getppid()
+    for _ in range(12):
+        try:
+            out = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        except Exception:
+            return None
+        if not out: return None
+        ppid, comm = out.split(None, 1)
+        if comm.strip().endswith("claude"): return str(pid)
+        pid = int(ppid)
+        if pid <= 1: return None
+    return None
+
+def link(c):
+    """Remember which Claude session/terminal is working on this card."""
+    pid, term = claude_pid(), os.environ.get("ORCA_TERMINAL_HANDLE", "")
+    if pid:
+        c["agent"] = {"pid": pid, "terminal": term, "linked": int(time.time())}
+
+def main(a):
+    if not a or a[0] not in ("list","start","new","done","link"):
+        print(__doc__.strip()); return 1
+    with open(DATA + ".lock", "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        b = json.load(open(DATA))
+        b.setdefault("brands", []); cards = b.setdefault("cards", [])
+        if a[0] == "list":
+            rank = {"Deep focus": 0, "Orchestrating": 1, "In progress": 1, "Next": 2}
+            for c in sorted(cards, key=lambda c: (rank.get(c["status"], 3), c.get("brand",""))):
+                if c["status"] != "Done":
+                    print(f'{c["id"]} | {c["status"]} | {c.get("brand","")} | {c["title"]}')
+            return 0
+        if a[0] == "new":
+            if len(a) < 2: print("need a title"); return 1
+            focus = "focus" in a[2:]
+            rest = [x for x in a[2:] if x != "focus"]
+            brand = rest[0] if rest else ""
+            if brand and brand not in b["brands"]:
+                m = [x for x in b["brands"] if x.lower() == brand.lower()]
+                brand = m[0] if m else (b["brands"].append(brand) or brand)
+            c = {"id": "c"+hex(int(time.time()*1000))[2:], "title": a[1], "brand": brand,
+                 "status": "Deep focus" if focus else "Orchestrating", "order": -1, "notes": "", "steps": [], "created": int(time.time()*1000)}
+            link(c)
+            cards.append(c)
+        elif a[0] == "link":
+            if len(a) < 4: print('usage: card link <id> "<label>" <url>'); return 1
+            c = next((c for c in cards if c["id"] == a[1]), None)
+            if not c: print("no card", a[1]); return 1
+            label, url = a[2].replace("[","(").replace("]",")"), a[3].strip()
+            if not re.match(r"https?://", url): print("url must start with http:// or https://"); return 1
+            notes = c.get("notes") or ""
+            if url in notes: print("already there:", url); return 0
+            if "**Links**" not in notes:
+                notes = notes.rstrip() + ("\n\n" if notes.strip() else "") + "**Links**\n"
+            # add under the Links heading, after any links already there
+            head, _, tail = notes.partition("**Links**\n")
+            lines = tail.split("\n"); i = 0
+            while i < len(lines) and lines[i].startswith("- ["): i += 1
+            lines.insert(i, f"- [{label}]({url})")
+            c["notes"] = head + "**Links**\n" + "\n".join(lines)
+        else:
+            if len(a) < 2: print("need a card id"); return 1
+            c = next((c for c in cards if c["id"] == a[1]), None)
+            if not c: print("no card", a[1]); return 1
+            c["status"] = ("Deep focus" if "focus" in a[2:] else "Orchestrating") if a[0] == "start" else "Done"; c["order"] = -1
+            if a[0] == "start": link(c)
+        import shutil; shutil.copy2(DATA, DATA + ".bak")
+        h = os.path.join(os.path.dirname(DATA), "history"); os.makedirs(h, exist_ok=True)
+        shutil.copy2(DATA, os.path.join(h, time.strftime("%Y%m%d-%H%M%S-") + str(time.time_ns() % 10**6) + ".json"))
+        tmp = DATA + ".tmp"; json.dump(b, open(tmp, "w"), indent=1); os.replace(tmp, DATA)
+        print(f'{c["id"]} -> {c["status"]}: {c["title"]}' if a[0] != "link" else f'linked on {c["id"]}: {a[2]}')
+    return 0
+sys.exit(main(sys.argv[1:]))
