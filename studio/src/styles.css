@@ -205,8 +205,8 @@ textarea.css:focus { border-color: var(--accent); }
 .design.loose .placeholder { background: rgba(255,255,255,0.06); }
 .design-outline .handle { pointer-events: auto; }
 .drop-outline { position: absolute; outline: 2px solid var(--accent); outline-offset: 2px; background: rgba(13,153,255,0.08); }
-.ghost { position: absolute; opacity: 0.75; outline: 1px dashed var(--accent); pointer-events: none; object-fit: fill; }
-div.ghost { background: rgba(13,153,255,0.12); }
+.drag-ghost { position: absolute; opacity: 0.75; outline: 1px dashed var(--accent); pointer-events: none; object-fit: fill; }
+div.drag-ghost { background: rgba(13,153,255,0.12); }
 .canvas.tool-frame { cursor: crosshair; }
 
 /* ---------- planning objects (boxes, sections, arrows, media, links) ---------- */

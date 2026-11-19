@@ -14,7 +14,7 @@ export function shortName(id: string): string {
   return id.replace(/\.html$/i, '').split('/').slice(-2).join('/')
 }
 
-/** What a design is called on the board: the name they gave it, else its file name. */
+/** What a design is called on the board: the name he gave it, else its file name. */
 export const nameOf = (d: Design | undefined, id: string) => d?.title || shortName(id)
 
 function Pin({ c, index }: { c: Comment; index: number }) {
@@ -101,7 +101,7 @@ export function Overlay() {
           </div>
         )
       })}
-      {drop && sel.design && els.map((el, i) => { const b = rawBox(sel.design!, el); return el.tagName === 'IMG' ? <img key={i} className="ghost" src={(el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src} style={box(b)} alt="" /> : <div key={i} className="ghost" style={box(b)} /> })}
+      {drop && sel.design && els.map((el, i) => { const b = rawBox(sel.design!, el); return el.tagName === 'IMG' ? <img key={i} className="drag-ghost" src={(el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src} style={box(b)} alt="" /> : <div key={i} className="drag-ghost" style={box(b)} /> })}
       {hoverEl && <div className="hover-outline" style={box(clip(boxOf(hover!.design, hoverEl), hover!.design))} />}
       {els.length > 1 && els.map((el, i) => <div key={i} className="sel-outline" style={box(clip(boxOf(sel.design!, el), sel.design!))} />)}
       {single && (
