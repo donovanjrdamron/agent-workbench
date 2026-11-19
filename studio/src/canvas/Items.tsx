@@ -1,0 +1,236 @@
+// Planning objects on the world plane: sections under everything, then arrows, then boxes, text, media and links.
+// They take their own clicks, so the design canvas underneath never sees a press that was meant for them.
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import type { Item } from '../../shared/types'
+import { designAt } from '../dom'
+import { addNext, addNote, boxFor, commitMove, dragGroup, dropIntoDesign, selectItems, startEdit } from '../items'
+import { itemOp } from '../net'
+import { get, set, useStore, type Box } from '../store'
+
+type Pt = { x: number; y: number }
+function toWorld(e: { clientX: number; clientY: number }): Pt {
+  const r = document.querySelector('.canvas')!.getBoundingClientRect()
+  const v = get().view
+  return { x: (e.clientX - r.left - v.x) / v.z, y: (e.clientY - r.top - v.y) / v.z }
+}
+const free = () => { const s = get(); return s.tool === 'move' && !s.space }
+
+/** Press on an item: select it, and drag it (with what it carries) if the pointer moves. */
+function press(e: React.PointerEvent, it: Item, opts: { resize?: boolean } = {}) {
+  if (!free() || e.button !== 0) return
+  e.stopPropagation()
+  e.preventDefault()
+  if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur()
+  const s = get()
+  let ids = s.isel
+  if (e.shiftKey) ids = ids.includes(it.id) ? ids.filter((i) => i !== it.id) : [...ids, it.id]
+  else if (!ids.includes(it.id)) ids = [it.id]
+  selectItems(ids)
+  if (it.kind === 'arrow') return
+  const p0 = toWorld(e)
+  const sx = e.clientX, sy = e.clientY
+  const g = opts.resize ? { items: [it.id], designs: [] } : dragGroup(ids.filter((i) => get().items[i]?.kind !== 'arrow'))
+  const start: Record<string, Box> = {}
+  for (const id of g.items) start[id] = { ...get().items[id] }
+  const from: Record<string, Pt> = {}
+  for (const id of g.designs) from[id] = { x: get().designs[id].x, y: get().designs[id].y }
+  let moved = false
+  const move = (ev: PointerEvent) => {
+    if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 3) return
+    moved = true
+    const p = toWorld(ev), dx = Math.round(p.x - p0.x), dy = Math.round(p.y - p0.y)
+    const cur = get()
+    const items = { ...cur.items }
+    if (opts.resize) {
+      const b = start[it.id]
+      const keep = it.kind === 'image' || it.kind === 'video'
+      const w = Math.max(80, b.w + dx), h = keep ? Math.round((w * b.h) / b.w) : Math.max(50, b.h + dy)
+      items[it.id] = { ...items[it.id], w, h }
+    } else {
+      for (const id of g.items) if (items[id]) items[id] = { ...items[id], x: start[id].x + dx, y: start[id].y + dy }
+    }
+    const designs = g.designs.length ? { ...cur.designs } : cur.designs
+    for (const id of g.designs) designs[id] = { ...designs[id], x: from[id].x + dx, y: from[id].y + dy }
+    set({ items, designs })
+  }
+  const up = (ev: PointerEvent) => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    if (!moved) { if (!e.shiftKey && ids.length > 1) selectItems([it.id]); return } // a plain click in a group picks that one
+    const p = toWorld(ev)
+    const over = it.kind === 'image' && !opts.resize && g.items.every((i) => i === it.id || get().items[i]?.attach === it.id) ? designAt(p) : null
+    if (over) { dropIntoDesign(it.id, over, p).then((ok) => { if (!ok) commitMove(g.items, g.designs, from) }); return }
+    commitMove(g.items, g.designs, from)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
+
+/** Where the line from a box's centre towards `t` leaves the box. */
+function edge(b: Box, t: Pt, gap: number): Pt {
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2
+  const dx = t.x - cx, dy = t.y - cy
+  if (!dx && !dy) return { x: cx, y: cy }
+  const k = Math.min(dx ? (b.w / 2 + gap) / Math.abs(dx) : Infinity, dy ? (b.h / 2 + gap) / Math.abs(dy) : Infinity)
+  return { x: cx + dx * k, y: cy + dy * k }
+}
+
+function Arrows({ items, z, sel }: { items: Item[]; z: number; sel: string[] }) {
+  useStore((s) => s.designs) // arrows to design frames follow them
+  return (
+    <svg className="it-arrows" width="1" height="1">
+      {items.map((a) => {
+        const A = boxFor(a.from!), B = boxFor(a.to!)
+        if (!A || !B) return null
+        const p = edge(A, { x: B.x + B.w / 2, y: B.y + B.h / 2 }, 8 / z), q = edge(B, { x: A.x + A.w / 2, y: A.y + A.h / 2 }, 10 / z)
+        const ang = Math.atan2(q.y - p.y, q.x - p.x), hl = 14 / z, hw = 0.45
+        const head = `M${q.x},${q.y} L${q.x - hl * Math.cos(ang - hw)},${q.y - hl * Math.sin(ang - hw)} L${q.x - hl * Math.cos(ang + hw)},${q.y - hl * Math.sin(ang + hw)} Z`
+        const on = sel.includes(a.id)
+        return (
+          <g key={a.id} className={`it-arrow${on ? ' on' : ''}`}>
+            <path d={`M${p.x},${p.y} L${q.x},${q.y}`} className="hit" onPointerDown={(e) => press(e, a)} />
+            <path d={`M${p.x},${p.y} L${q.x},${q.y}`} className="line" />
+            <path d={head} className="head" />
+            {a.text ? <text x={(p.x + q.x) / 2} y={(p.y + q.y) / 2 - 8 / z} style={{ fontSize: 13 / z }}>{a.text}</text> : null}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+/** The text of a box while it is being typed in. Plain text; saved as you pause and when you leave. */
+function Editor({ it, seed }: { it: Item; seed?: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const save = (final: boolean) => {
+    const el = ref.current
+    if (!el) return
+    const text = el.innerText.replace(/\n$/, '')
+    const cur = get().items[it.id]
+    if (!cur) return
+    const need = it.kind === 'box' ? Math.max(cur.h, Math.ceil(el.scrollHeight)) : it.kind === 'text' ? Math.max(40, Math.ceil(el.scrollHeight)) : cur.h
+    const w = it.kind === 'text' ? Math.max(cur.w, Math.ceil(el.scrollWidth)) : cur.w
+    if (text !== (cur.text || '') || need !== cur.h || w !== cur.w) itemOp([{ ...cur, text, h: need, w }])
+    if (final && get().iedit?.id === it.id) set({ iedit: null })
+  }
+  useLayoutEffect(() => {
+    const el = ref.current!
+    el.innerText = seed ?? it.text ?? ''
+    el.focus()
+    const r = document.createRange(); r.selectNodeContents(el); r.collapse(false)
+    const sel = window.getSelection(); sel?.removeAllRanges(); sel?.addRange(r)
+    if (seed) save(false)
+    return () => { if (timer.current) clearTimeout(timer.current) }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div ref={ref} className="it-text editing" contentEditable="plaintext-only" suppressContentEditableWarning
+      onPointerDown={(e) => e.stopPropagation()}
+      onInput={() => { if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => save(false), 500) }}
+      onBlur={() => save(true)}
+      onKeyDown={(e) => { if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); (e.target as HTMLElement).blur() } }} />
+  )
+}
+
+function ItemView({ it, on, edit, seed, board, z }: { it: Item; on: boolean; edit: boolean; seed?: string; board: string; z: number }) {
+  const grows = it.kind === 'text' || it.kind === 'box'
+  const box = useRef<HTMLDivElement>(null)
+  // a box is never shorter than its text: the board keeps the real height so arrows meet its edge
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el || !grows) return
+    const fit = () => { const cur = get().items[it.id]; const h = Math.ceil(el.offsetHeight); if (cur && h > cur.h + 1) set({ items: { ...get().items, [it.id]: { ...cur, h } } }) }
+    fit()
+    const ro = new ResizeObserver(fit); ro.observe(el)
+    return () => ro.disconnect()
+  }, [it.id, grows])
+  const style = { left: it.x, top: it.y, width: it.w, height: grows ? undefined : it.h, minHeight: grows ? it.h : undefined, outlineWidth: on ? 2 / z : 0, ...(it.fs ? { '--fs': `${it.fs}px`, padding: `${Math.round(it.fs * 0.45)}px ${Math.round(it.fs * 0.6)}px` } : {}) } as React.CSSProperties
+  const media = `/b/${encodeURIComponent(board)}/${(it.src || '').split('/').map(encodeURIComponent).join('/')}`
+  const dbl = (e: React.MouseEvent) => {
+    if (!free()) return
+    e.stopPropagation()
+    if (it.kind === 'box' || it.kind === 'text') startEdit(it.id)
+    else if (it.kind === 'link' && it.url) window.open(it.url, '_blank', 'noopener')
+  }
+  if (it.kind === 'section') {
+    return (
+      <div className={`it it-section${on ? ' on' : ''}`} style={style} onPointerDown={(e) => press(e, it)}>
+        <div className="it-section-title" style={{ fontSize: 13 / z, top: -22 / z }} onPointerDown={(e) => press(e, it)} onDoubleClick={(e) => { e.stopPropagation(); startEdit(it.id) }}>
+          {edit ? <Editor it={it} /> : it.text || 'Section'}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div ref={box} className={`it it-${it.kind === 'text' ? 'label' : it.kind}${it.color ? ` c-${it.color}` : ''}${on ? ' on' : ''}${!it.text && it.kind === 'box' && !edit ? ' empty' : ''}`} style={style}
+      onPointerDown={(e) => { if (it.kind === 'video' && on && (e.target as HTMLElement).tagName === 'VIDEO') { e.stopPropagation(); return } press(e, it) }}
+      onDoubleClick={dbl}>
+      {(it.kind === 'box' || it.kind === 'text') && (edit ? <Editor it={it} seed={seed} /> : <div className="it-text">{it.text}</div>)}
+      {it.kind === 'image' && <img src={media} draggable={false} alt="" />}
+      {it.kind === 'video' && <>
+        <div className="it-grab" style={{ fontSize: 12 / z, height: 26 / z, top: -28 / z }}>▶ {it.text || 'video'}</div>
+        <video src={media} controls={on} preload="metadata" playsInline />
+      </>}
+      {it.kind === 'link' && <>
+        <div className="it-link-url">{it.text || it.url}</div>
+        <div className="it-link-host">{(() => { try { return new URL(it.url || '').hostname } catch { return it.url } })()}</div>
+        <a className="it-link-open" href={it.url} target="_blank" rel="noopener" onPointerDown={(e) => e.stopPropagation()} title="Open link">↗</a>
+      </>}
+    </div>
+  )
+}
+
+/** Controls around one selected item: + on each side of a step box, + Note under media, a resize grip. */
+function Chrome({ it, z, editing }: { it: Item; z: number; editing: boolean }) {
+  const btn = 30 / z, off = 34 / z
+  const cx = it.x + it.w / 2, cy = it.y + it.h / 2
+  const plus = it.kind === 'box' && !it.attach && !editing
+  const at: Record<string, Pt> = { up: { x: cx, y: it.y - off }, down: { x: cx, y: it.y + it.h + off }, left: { x: it.x - off, y: cy }, right: { x: it.x + it.w + off, y: cy } }
+  return (
+    <>
+      {plus && (Object.keys(at) as (keyof typeof at)[]).map((d) => (
+        <button key={d} className="it-plus" title="Add the next step" style={{ left: at[d].x - btn / 2, top: at[d].y - btn / 2, width: btn, height: btn, fontSize: 20 / z }}
+          onPointerDown={(e) => { e.stopPropagation(); e.preventDefault() }} onClick={(e) => { e.stopPropagation(); addNext(it.id, d as 'up') }}>+</button>
+      ))}
+      {(it.kind === 'image' || it.kind === 'video') && (
+        <button className="it-note" style={{ left: it.x, top: it.y + it.h + 14 / z, fontSize: 13 / z, padding: `${5 / z}px ${10 / z}px`, borderRadius: 6 / z }}
+          onPointerDown={(e) => { e.stopPropagation(); e.preventDefault() }} onClick={(e) => { e.stopPropagation(); addNote(it.id) }}>+ Note</button>
+      )}
+      {it.kind !== 'arrow' && !editing && (
+        <div className="it-grip" style={{ left: it.x + it.w - 7 / z, top: it.y + it.h - 7 / z, width: 14 / z, height: 14 / z, borderWidth: 2 / z }} onPointerDown={(e) => press(e, it, { resize: true })} />
+      )}
+    </>
+  )
+}
+
+/** Sections go under the design frames; everything else is drawn by <ItemsTop> above them. */
+export function ItemsBelow() {
+  const items = useStore((s) => s.items)
+  const isel = useStore((s) => s.isel)
+  const iedit = useStore((s) => s.iedit)
+  const board = useStore((s) => s.board)
+  const z = useStore((s) => s.view.z)
+  const list = Object.values(items).filter((i) => i.kind === 'section').sort((a, b) => b.w * b.h - a.w * a.h)
+  return <>{list.map((it) => <ItemView key={it.id} it={it} on={isel.includes(it.id)} edit={iedit?.id === it.id} board={board} z={z} />)}</>
+}
+export function ItemsTop() {
+  const items = useStore((s) => s.items)
+  const isel = useStore((s) => s.isel)
+  const iedit = useStore((s) => s.iedit)
+  const board = useStore((s) => s.board)
+  const z = useStore((s) => s.view.z)
+  const all = Object.values(items)
+  const arrows = all.filter((i) => i.kind === 'arrow')
+  const rest = all.filter((i) => i.kind !== 'arrow' && i.kind !== 'section')
+  const one = isel.length === 1 ? items[isel[0]] : null
+  // a click on the bare canvas ends typing (the canvas blurs whatever has focus)
+  useEffect(() => { if (iedit && !items[iedit.id]) set({ iedit: null }) }, [iedit, items])
+  return (
+    <>
+      <Arrows items={arrows} z={z} sel={isel} />
+      {rest.map((it) => <ItemView key={it.id} it={it} on={isel.includes(it.id)} edit={iedit?.id === it.id} seed={iedit?.id === it.id ? iedit.seed : undefined} board={board} z={z} />)}
+      {one && one.kind !== 'section' && <Chrome it={one} z={z} editing={iedit?.id === one.id} />}
+      {one && one.kind === 'section' && <Chrome it={one} z={z} editing={false} />}
+    </>
+  )
+}

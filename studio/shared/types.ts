@@ -9,6 +9,8 @@ export interface Design {
   width?: number // viewport width for page-type designs (emails, briefs)
   rev: string // hash of the current source
   dirty?: boolean // differs from the agent's last version (has hand edits)
+  title?: string // the name shown on the board, free text. The file keeps its own name.
+  loose?: boolean // a piece sitting on the board outside any frame (a file under loose/)
 }
 
 export interface Comment {
@@ -24,11 +26,31 @@ export interface Comment {
   ts: number
 }
 
+/** A planning object on the board, outside any HTML file: steps, notes, sections, media, links and the arrows between them. */
+export type ItemKind = 'box' | 'text' | 'section' | 'image' | 'video' | 'link' | 'arrow'
+export interface Item {
+  id: string
+  kind: ItemKind
+  x: number // world position (arrows: ignored, drawn between `from` and `to`)
+  y: number
+  w: number
+  h: number
+  text?: string // box/text/section title/link label/arrow label
+  src?: string // image/video: path inside the board folder (studio-assets/…)
+  url?: string // link
+  from?: string // arrow: item id or design id
+  to?: string
+  attach?: string // a note tied to an image/video item: moves with it
+  color?: string
+  fs?: number // text size in board px (default: the style's)
+}
+
 export interface Board {
   name: string
   root: string
   designs: Design[]
   comments: Comment[]
+  items?: Item[]
 }
 
 /** One change to an element in the source. `sid` is the element's index in document order. */

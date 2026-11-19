@@ -1,8 +1,9 @@
-import type { Board, Design, Edit } from '../shared/types'
+import type { Board, Design, Edit, Item } from '../shared/types'
 import { markReloading, rememberSelection } from './dom'
 import { bump, clientId, get, set, toast, useStore } from './store'
 
 let ws: WebSocket | null = null
+const itemsFrom = (list: Item[]) => Object.fromEntries(list.map((i) => [i.id, i]))
 let current = ''
 let resync = false // the socket has just (re)connected: the next board message says what was missed
 const failed = new Set<string>() // designs showing edits that never reached the server
@@ -38,7 +39,9 @@ function applyBoard(b: Board) {
     loaded[d.id] = same && s.loaded[d.id] && !missed ? s.loaded[d.id] : d.rev
   }
   resync = false
-  set({ board: b.name, root: b.root, designs, order: b.designs.map((d) => d.id), loaded, comments: b.comments, ...(same ? {} : { sel: { design: null, sids: [] }, hover: null, editing: null }) })
+  // loose pieces sit in front of the frames
+  const order = [...b.designs.filter((d) => !d.loose), ...b.designs.filter((d) => d.loose)].map((d) => d.id)
+  set({ board: b.name, root: b.root, designs, order, loaded, comments: b.comments, items: itemsFrom(b.items || []), ...(same ? {} : { sel: { design: null, sids: [] }, hover: null, editing: null, isel: [], iedit: null }) })
 }
 
 export function connect(board: string) {
@@ -71,6 +74,12 @@ export function connect(board: string) {
       if (foreign && s.loaded[d.id] !== rev) rememberSelection(d.id)
       set({ designs: { ...s.designs, [d.id]: { ...d, x: s.designs[d.id]?.x ?? d.x, y: s.designs[d.id]?.y ?? d.y } }, ...(mine ? {} : { loaded: reloadTo(s.loaded, d.id, rev) }) })
     } else if (msg.type === 'comments') set({ comments: msg.comments })
+    else if (msg.type === 'items') {
+      // keep the box being typed in as it is on screen; everything else follows the server
+      const s = get(), next = itemsFrom(msg.items)
+      if (s.iedit && s.items[s.iedit.id] && next[s.iedit.id]) next[s.iedit.id] = s.items[s.iedit.id]
+      set({ items: next, isel: s.isel.filter((i) => next[i]) })
+    }
     else if (msg.type === 'error') toast(msg.error)
   }
   sock.onclose = () => { set({ connected: false }); if (current === board) setTimeout(() => current === board && connect(board), 1000) }
@@ -88,7 +97,7 @@ useStore.subscribe((s) => { const k = s.sel.design + '|' + s.sel.sids.join(',');
 
 // One write at a time per design, each carrying the rev the previous one produced.
 const chains = new Map<string, Promise<unknown>>()
-export function sendEdits(design: string, edits: Edit[]): Promise<{ ok: boolean; reload?: boolean; newSid?: number | null; error?: string; offline?: boolean; stale?: boolean }> {
+export function sendEdits(design: string, edits: Edit[], from?: string | null): Promise<{ ok: boolean; reload?: boolean; newSid?: number | null; error?: string; offline?: boolean; stale?: boolean }> {
   const shown = get().loaded[design]
   const run = async () => {
     const s = get()
@@ -96,7 +105,7 @@ export function sendEdits(design: string, edits: Edit[]): Promise<{ ok: boolean;
     // document that is gone and may name other elements now. The rev below would be the new one, so the server
     // could not tell. Drop them.
     if (s.loaded[design] !== shown) return { ok: false, stale: true }
-    const r = await api('/api/edit', { board: s.board, design, rev: s.designs[design]?.rev, edits, by: 'user', origin: clientId })
+    const r = await api('/api/edit', { board: s.board, design, rev: s.designs[design]?.rev, edits, by: 'user', origin: clientId, from: from || undefined })
     if (r.offline) { failed.add(design); toast('Not saved: Studio is not answering. Your last change was dropped.'); return r }
     if (r.ok) {
       const cur = get()
@@ -131,12 +140,34 @@ export const history_ = async (dir: 'undo' | 'redo') => {
   bump()
 }
 export const commentOp = (body: Record<string, unknown>) => api('/api/comments', { board: get().board, ...body })
+export const newFrame = (f: { title: string; x: number; y: number; w: number; h: number }) => api('/api/new', { board: get().board, ...f, bg: '#ffffff', by: 'user' })
+export const transferApi = (body: Record<string, unknown>) => api('/api/transfer', { board: get().board, ...body })
+/** Load a design again from its file, throwing away whatever the iframe shows that was never saved. */
+export function reloadDesign(id: string) { const s = get(); if (s.designs[id]) set({ loaded: reloadTo(s.loaded, id, `${s.designs[id].rev}-r${Date.now()}`) }) }
 export const newDesign = (name: string, size: string) => api('/api/new', { board: get().board, name, size })
 export const addBoard = (name: string, root: string) => api('/api/boards', { name, root })
 export const exportDesign = (design: string, scale: number, format: string) => api('/api/export', { board: get().board, design, scale, format })
 
-export async function upload(design: string, file: Blob, name: string): Promise<string> {
-  const r = await fetch(`/api/upload?board=${encodeURIComponent(get().board)}&design=${encodeURIComponent(design)}&name=${encodeURIComponent(name)}`, { method: 'POST', body: file }).then((r) => r.json())
+/** `design` null: for a piece on the bare board. */
+export async function upload(design: string | null, file: Blob, name: string): Promise<string> {
+  const r = await fetch(`/api/upload?board=${encodeURIComponent(get().board)}${design ? `&design=${encodeURIComponent(design)}` : ''}&name=${encodeURIComponent(name)}`, { method: 'POST', body: file }).then((r) => r.json())
   if (!r.src) throw new Error(r.error || 'upload failed')
   return r.src
+}
+
+/** Planning objects: one call is one undo step. The change is shown at once; the server's answer follows over the socket. */
+export function itemOp(put: Item[], remove: string[] = []) {
+  const s = get()
+  const items = { ...s.items }
+  for (const it of put) items[it.id] = { ...items[it.id], ...it }
+  for (const r of remove) delete items[r]
+  set({ items })
+  return api('/api/items', { board: s.board, put, remove, from: clientId, by: 'user' }).then((r) => { if (!r.ok) toast(r.error || 'Not saved'); return r })
+}
+/** Upload a picture or video into the board folder. Returns its path from the board root. */
+export async function uploadMedia(file: File): Promise<string> {
+  const r = await fetch(`/api/upload?board=${encodeURIComponent(get().board)}&name=${encodeURIComponent(file.name || 'file')}`, { method: 'POST', body: file })
+  const j = await r.json()
+  if (!r.ok || !j.path) throw new Error(j.error || 'upload failed')
+  return j.path
 }

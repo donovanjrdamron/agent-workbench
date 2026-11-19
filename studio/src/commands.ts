@@ -2,8 +2,8 @@
 // and then written into the HTML file as the smallest possible edit.
 import type { Design, Edit } from '../shared/types'
 import { forget, prepareImages } from './alpha'
-import { boxOf, clean, docOf, elOf, frames, isPage, isReloading, isRoot, isTextLeaf, isWrapper, label, markReloading, parentSel, pick, rememberSelection, selected, sidOf } from './dom'
-import { commentOp, deleteDesign, history_, revertDesign, saveLayout, sendEdits, settled, settledAll, upload } from './net'
+import { boxOf, clean, docOf, elOf, frames, isPage, isReloading, isRoot, isTextLeaf, isWrapper, label, markReloading, parentSel, pick, piecesOf, rawBox, rememberSelection, selected, sidOf } from './dom'
+import { commentOp, deleteDesign, history_, newFrame, reloadDesign, revertDesign, saveLayout, sendEdits, settled, settledAll, transferApi, upload } from './net'
 import { ask, bump, get, select, set, toast, type Box } from './store'
 
 // ---------- pending style edits ----------
@@ -44,7 +44,7 @@ export function flush() {
 }
 
 /** Edits that add, remove or rewrite elements. The design reloads when they land. */
-export async function structural(design: string, edits: Edit[], then?: { edit?: boolean; select?: boolean }) {
+export async function structural(design: string, edits: Edit[], then?: { edit?: boolean; select?: boolean }, from?: string | null) {
   // Copy still being typed is saved first, and the design reloaded with it. (A panel button does not end the edit by itself.)
   if (editState) {
     const fin = finishEditing()
@@ -56,15 +56,15 @@ export async function structural(design: string, edits: Edit[], then?: { edit?: 
   // Wait for what is already on its way (the text edit above, say). Sent straight behind an edit that reloads the
   // design, this one would be dropped as stale.
   await settled(design)
-  const r = await writeNow(design, edits)
+  const r = await writeNow(design, edits, from)
   if (r.ok && then && r.newSid != null) set({ afterLoad: { design, sid: r.newSid, edit: then.edit } })
   return r
 }
 /** Queue a structural edit this instant, for the callers that cannot wait (ending a text edit). */
-function writeNow(design: string, edits: Edit[]) {
+function writeNow(design: string, edits: Edit[], from?: string | null) {
   flush()
   markReloading(design)
-  return sendEdits(design, edits).then((r) => { if (r.offline || (r.ok && !r.reload)) markReloading(design, false); return r }) // nothing changed: nothing reloads
+  return sendEdits(design, edits, from).then((r) => { if (r.offline || (r.ok && !r.reload)) markReloading(design, false); return r }) // nothing changed: nothing reloads
 }
 
 export function setAttr(design: string, el: HTMLElement, name: string, value: string | null) {
@@ -124,11 +124,12 @@ export function nudge(dx: number, dy: number) {
 // ---------- structure ----------
 export async function removeDesign(id: string) {
   const name = id.split('/').slice(-2).join('/')
-  if (!(await ask(`Delete the design "${name}"?`, 'The HTML file is removed from its folder. A copy is kept in Studio\'s trash, and ⌘Z brings it back.', 'Delete design'))) return
+  // a loose piece goes like any element: no question, ⌘Z brings it back
+  if (!get().designs[id]?.loose && !(await ask(`Delete the design "${name}"?`, 'The HTML file is removed from its folder. A copy is kept in Studio\'s trash, and ⌘Z brings it back.', 'Delete design'))) return
   flush()
   await settledAll() // the last tweak must reach the file before the delete does
   const r = await deleteDesign(id)
-  if (r.ok) { select(null); toast('Design deleted. ⌘Z to undo.') } else toast(r.error || 'Could not delete')
+  if (r.ok) { select(null); toast(`${id.startsWith('loose/') ? 'Deleted' : 'Design deleted'}. ⌘Z to undo.`) } else toast(r.error || 'Could not delete')
 }
 
 export async function revert(id: string) {
@@ -167,10 +168,14 @@ export async function duplicate() {
 // Each design file has its own <style>, so a class means nothing (or something else) in another file. A copy
 // therefore also carries the look the piece really had, to be written inline when it is pasted into another design.
 const LOOK = ['font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform', 'text-align', 'color', 'background-color', 'display', 'flex-direction', 'align-items', 'justify-content', 'gap', 'margin', 'padding', 'border-radius', 'white-space', 'mix-blend-mode', 'object-fit']
+// More of the look, carried when it differs: what makes a card a card and a cut-out a cut-out.
+const MORE = ['background-image', 'background-size', 'background-position', 'background-repeat', '-webkit-background-clip', '-webkit-text-fill-color', 'border-top', 'border-right', 'border-bottom', 'border-left', 'box-shadow', 'opacity', 'rotate', 'transform', 'filter', 'backdrop-filter', '-webkit-mask-image', '-webkit-mask-size', '-webkit-mask-position', '-webkit-mask-repeat', 'text-shadow', 'text-decoration-line', 'overflow', 'object-position', 'flex-wrap', 'box-sizing', 'vertical-align', 'aspect-ratio']
+// Only for what is inside the piece: where each part sits in it.
+const INSIDE = ['position', 'left', 'top', 'right', 'bottom']
 const INHERITED = LOOK.slice(0, 9).concat('white-space')
 /** A computed value as it should be written: sizes that follow the font stay relative to it, and no double quotes (it goes in an attribute). */
 function written(prop: string, v: string, fontSize: number): string {
-  if (prop === 'font-family') return v.replace(/"/g, "'")
+  v = v.replace(/"/g, "'")
   if ((prop === 'line-height' || prop === 'letter-spacing') && v.endsWith('px') && fontSize) return `${Math.round((parseFloat(v) / fontSize) * 1000) / 1000}${prop === 'line-height' ? '' : 'em'}`
   return v
 }
@@ -193,7 +198,11 @@ function portable(el: HTMLElement): { html: string; own: Record<string, string> 
     twin.set(src, t)
     const a = getComputedStyle(src), b = getComputedStyle(t)
     const fs = parseFloat(a.fontSize)
-    const decls = [...LOOK, ...(src.tagName === 'IMG' ? ['width'] : [])].filter((p) => !src.style.getPropertyValue(p) && a.getPropertyValue(p) !== b.getPropertyValue(p)).map((p) => `${p}:${written(p, a.getPropertyValue(p), fs)}`)
+    const fixed = a.position === 'absolute' || a.position === 'fixed'
+    const bare = !src.textContent?.trim()
+    const sized = src.tagName === 'IMG' ? ['width'] : src !== el && (fixed || bare) ? (bare ? ['width', 'height'] : ['width']) : []
+    const props = [...LOOK, ...MORE, ...(src === el ? [] : INSIDE), ...sized]
+    const decls = props.filter((p) => !src.style.getPropertyValue(p) && a.getPropertyValue(p) !== b.getPropertyValue(p) && !(p.startsWith('border-') && p !== 'border-radius' && /^0px|none/.test(a.getPropertyValue(p)))).map((p) => `${p}:${written(p, a.getPropertyValue(p), fs)}`)
     addStyle(to[i], decls)
     addStyle(t, decls) // so that what is inside it inherits what the real one hands down
   }) } finally { twin.get(el)?.remove() } // the stand-ins sit in the live design for an instant: never leave one behind
@@ -201,14 +210,14 @@ function portable(el: HTMLElement): { html: string; own: Record<string, string> 
   return { html: clean(clone.outerHTML), own: Object.fromEntries(INHERITED.map((p) => [p, cs.getPropertyValue(p)])) }
 }
 /** What to insert into another design: also what the piece inherited from its old artboard, where the new one differs. */
-function carried(c: { look: string; own: Record<string, string> }, root: HTMLElement): string {
+function carried(c: { look: string; own: Record<string, string> }, root: HTMLElement | null): string {
   const t = document.createElement('template')
   t.innerHTML = c.look
   const el = t.content.firstElementChild as HTMLElement | null
   if (!el) return c.look
-  const there = getComputedStyle(root)
+  const there = root ? getComputedStyle(root) : null // (null: the bare board, where nothing is handed down)
   const has = new Set((el.getAttribute('style') || '').split(';').map((d) => d.split(':')[0].trim()))
-  addStyle(el, INHERITED.filter((p) => !has.has(p) && c.own[p] && c.own[p] !== there.getPropertyValue(p)).map((p) => `${p}:${written(p, c.own[p], parseFloat(c.own['font-size']))}`))
+  addStyle(el, INHERITED.filter((p) => !has.has(p) && c.own[p] && c.own[p] !== there?.getPropertyValue(p)).map((p) => `${p}:${written(p, c.own[p], parseFloat(c.own['font-size']))}`))
   return t.innerHTML
 }
 
@@ -247,7 +256,7 @@ export async function paste() {
   if (!root) { toast('Zoom in on this design to load it, then paste'); return }
   if (!root.hasAttribute('data-sid')) { toast('This file has no artboard element to paste into'); return }
   let z = topZ(root)
-  for (const c of clipboard) await structural(design, [{ kind: 'insert', parent: sidOf(root), html: withZ(design === clipFrom ? c.html : carried(c, root), z ? ++z : 0) }], { select: true })
+  for (const c of clipboard) await structural(design, [{ kind: 'insert', parent: sidOf(root), html: withZ(design === clipFrom ? c.html : carried(c, root), z ? ++z : 0) }], { select: true }, design === clipFrom ? null : clipFrom)
 }
 
 export async function insert(design: string, html: string, edit = false) {
@@ -266,15 +275,132 @@ export function local(design: string, pt: { x: number; y: number }) {
   return { x: Math.round(pt.x - d.x + (f?.ox || 0) - (r?.left || 0)), y: Math.round(pt.y - d.y + (f?.oy || 0) - (r?.top || 0)) }
 }
 
-export async function insertImages(design: string, files: File[], pt: { x: number; y: number }) {
+export async function insertImages(design: string | null, files: File[], pt: { x: number; y: number }) {
   for (const file of files.filter((f) => f.type.startsWith('image/'))) {
     try {
       const src = await upload(design, file, file.name || 'pasted.png')
+      if (!design || get().designs[design]?.loose || isPage(design)) { // onto the bare board
+        const size = await new Promise<{ w: number; h: number }>((res) => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth || 600, h: i.naturalHeight || 600 }); i.onerror = () => res({ w: 600, h: 600 }); i.src = URL.createObjectURL(file) })
+        const w = Math.min(800, size.w), h = Math.round((w * size.h) / size.w)
+        await addLoose(`<img src="${src}" style="position:absolute;left:0px;top:0px;width:${w}px;height:${h}px">`, { x: pt.x - w / 2, y: pt.y - h / 2, w, h }, (file.name || 'image').replace(/\.\w+$/, ''))
+        continue
+      }
       const p = local(design, pt)
       const w = Math.min(600, get().designs[design].w)
       await insert(design, `<img src="${src}" style="position:absolute;left:${Math.max(0, p.x - w / 2)}px;top:${Math.max(0, p.y - w / 2)}px;width:${w}px">`)
     } catch (e) { toast(`Image failed: ${(e as Error).message}`) }
   }
+}
+
+// ---------- frames and loose pieces ----------
+/** A new frame, wherever and whatever size it was drawn. Its name is typed straight away. */
+export async function createFrame(box: Box) {
+  const n = Object.values(get().designs).filter((d) => !d.loose).length + 1
+  const r = await newFrame({ title: `Frame ${n}`, x: Math.round(box.x), y: Math.round(box.y), w: Math.max(20, Math.round(box.w)), h: Math.max(20, Math.round(box.h)) })
+  set({ tool: 'move' })
+  if (!r.ok) { toast(r.error || 'Could not make the frame'); return }
+  for (let i = 0; i < 60 && !get().designs[r.design]; i++) await new Promise((res) => setTimeout(res, 50))
+  if (get().designs[r.design]) { select(r.design, []); set({ renaming: r.design }) }
+}
+export function rename(id: string, title: string) {
+  const d = get().designs[id]
+  title = title.trim()
+  set({ renaming: null })
+  if (!d || !title || title === (d.title || '')) return
+  set({ designs: { ...get().designs, [id]: { ...d, title } } })
+  saveLayout([{ id, title }])
+}
+/** Put a piece on the bare board: it becomes a small file of its own. `box` is where it sits on the canvas. */
+export async function addLoose(html: string, box: Box, name = 'piece', edit = false) {
+  const r = await transferApi({ items: [{ html, x: box.x, y: box.y, w: box.w, h: box.h, name }] })
+  set({ tool: 'move' })
+  if (!r.ok) { toast(r.error || 'Could not add that'); return }
+  const id = r.designs?.[0]
+  for (let i = 0; id && i < 60 && !get().designs[id]; i++) await new Promise((res) => setTimeout(res, 50))
+  if (!id || !get().designs[id]) return
+  select(id, [])
+  if (!edit) return
+  for (let i = 0; i < 60 && !piecesOf(id).length; i++) await new Promise((res) => setTimeout(res, 50))
+  const el = piecesOf(id)[0]
+  if (el) { select(id, [sidOf(el)]); startEditing(id, el) }
+}
+
+const stemOf = (el: Element) => (el.getAttribute('class') || '').split(/\s+/)[0] || (el.tagName === 'IMG' ? ((el.getAttribute('src') || '').split('/').pop() || 'image').replace(/\.\w+$/, '') : isTextLeaf(el) ? (el.textContent || '').trim().split(/\s+/).slice(0, 3).join('-') : el.tagName.toLowerCase())
+/** The piece's markup, set to sit at left/top in its new home with nothing left of how it was placed in the old one. */
+function placedAt(html: string, left: number, top: number, size: { width?: string; height?: string }): string {
+  const t = document.createElement('template')
+  t.innerHTML = html
+  const el = t.content.firstElementChild as HTMLElement | null
+  if (!el) return html
+  for (const p of ['translate', 'right', 'bottom', 'inset', 'margin', 'z-index']) el.style.removeProperty(p)
+  el.style.setProperty('position', 'absolute')
+  el.style.setProperty('left', `${Math.round(left)}px`)
+  el.style.setProperty('top', `${Math.round(top)}px`)
+  el.style.setProperty('margin', '0')
+  if (size.width && !el.style.width) el.style.setProperty('width', size.width)
+  if (size.height && !el.style.height) el.style.setProperty('height', size.height)
+  return t.innerHTML
+}
+/**
+ * Take pieces out of their design and put them where they were dropped: into the frame `to`, or (null) onto the bare
+ * board. They keep their look (written inline, since the other file has other CSS) and the spot they were dropped at.
+ */
+export async function moveOut(design: string, els: HTMLElement[], to: string | null, drag?: { movers: Mover[]; dx: number; dy: number }): Promise<boolean> {
+  const d = get().designs[design]
+  const toRoot = to ? frames.get(to)?.root : null
+  if (!d || !els.length) return false
+  if (to && (!toRoot || !toRoot.hasAttribute('data-sid') || isPage(to))) { toast(isPage(to) ? 'Emails and pages are flow layouts: pieces cannot be dropped into them.' : 'Zoom in on that frame to load it, then drop again'); reloadDesign(design); return false }
+  let z = toRoot ? topZ(toRoot) : 0
+  // Measured where the piece lived, not where the drag left it: pushed against its frame's edge a line of copy wraps
+  // into a narrow column, and that is not its size.
+  if (drag) for (const m of drag.movers) for (const [k, v] of Object.entries(moveProps(m, 0, 0))) { if (v === null) m.el.style.removeProperty(k); else m.el.style.setProperty(k, v) }
+  const items = els.map((el) => {
+    const b = rawBox(design, el)
+    if (drag) { b.x += drag.dx; b.y += drag.dy }
+    const cs = getComputedStyle(el)
+    const ow = el.offsetWidth || b.w, oh = el.offsetHeight || b.h
+    const p = portable(el)
+    // a turned piece: its box on screen is bigger than the piece, and both share a centre
+    const at = to ? local(to, { x: b.x + (b.w - ow) / 2, y: b.y + (b.h - oh) / 2 }) : { x: (Math.ceil(b.w) - ow) / 2, y: (Math.ceil(b.h) - oh) / 2 }
+    let html = to ? carried({ look: p.html, own: p.own }, toRoot!) : carried({ look: p.html, own: p.own }, null)
+    const w = cs.width.endsWith('px') ? cs.width : undefined
+    html = placedAt(html, at.x, at.y, { width: w, height: el.tagName === 'IMG' && cs.height.endsWith('px') ? cs.height : undefined })
+    if (to && z) html = withZ(html, ++z)
+    return { html, x: b.x, y: b.y, w: b.w, h: b.h, name: stemOf(el) }
+  })
+  const emptied = !!d.loose && piecesOf(design).every((k) => els.includes(k))
+  const sids = els.map(sidOf)
+  flush()
+  await settledAll()
+  markReloading(design)
+  if (to) { markReloading(to); rememberSelection(to) }
+  const r = await transferApi({ from: design, sids, rev: get().designs[design]?.rev, emptied, to: to || undefined, parent: toRoot ? sidOf(toRoot) : undefined, items })
+  if (!r.ok) { toast(r.error || 'Could not move that'); markReloading(design, false); if (to) markReloading(to, false); reloadDesign(design); return false }
+  if (to) { select(to, []); if (r.newSid != null) set({ afterLoad: { design: to, sid: r.newSid } }) }
+  else {
+    const id = r.designs?.[0]
+    for (let i = 0; id && i < 60 && !get().designs[id]; i++) await new Promise((res) => setTimeout(res, 50))
+    select(id && get().designs[id] ? id : null, [])
+  }
+  return true
+}
+/** A loose piece was moved or resized inside its own little file: make the file fit it again, without the piece moving on the board. */
+export function fitLoose(design: string) {
+  const d = get().designs[design]
+  const root = frames.get(design)?.root
+  const kids = piecesOf(design)
+  if (!d?.loose || !root || !kids.length || isReloading(design)) { flush(); return }
+  const rr = root.getBoundingClientRect()
+  const rs = kids.map((k) => k.getBoundingClientRect())
+  const x0 = Math.min(...rs.map((r) => r.left)) - rr.left, y0 = Math.min(...rs.map((r) => r.top)) - rr.top
+  const w = Math.ceil(Math.max(...rs.map((r) => r.right)) - rr.left - x0), h = Math.ceil(Math.max(...rs.map((r) => r.bottom)) - rr.top - y0)
+  const dx = Math.round(x0), dy = Math.round(y0)
+  if (!dx && !dy && Math.abs(w - rr.width) < 1.5 && Math.abs(h - rr.height) < 1.5) { flush(); return }
+  if (dx || dy) for (const k of kids) style(design, [k], moveProps(mover(k), -dx, -dy))
+  style(design, [root], { width: `${w}px`, height: `${h}px` }, true)
+  const cur = get().designs[design]
+  set({ designs: { ...get().designs, [design]: { ...cur, x: cur.x + dx, y: cur.y + dy, w, h } } })
+  saveLayout([{ id: design, x: cur.x + dx, y: cur.y + dy, w, h }])
 }
 
 // ---------- layers ----------
@@ -638,7 +764,7 @@ const union = (bs: Box[]): Box | null => {
   const x0 = Math.min(...bs.map((b) => b.x)), y0 = Math.min(...bs.map((b) => b.y))
   return { x: x0, y: y0, w: Math.max(...bs.map((b) => b.x + b.w)) - x0, h: Math.max(...bs.map((b) => b.y + b.h)) - y0 }
 }
-export const fitAll = () => zoomToBox(union(Object.values(get().designs)))
+export const fitAll = () => { const s = get(); const all = [...Object.values(s.designs), ...Object.values(s.items).filter((i) => i.kind !== 'arrow')]; if (all.length) zoomToBox(union(all)) }
 export function fitSelection() {
   const { sel, designs } = get()
   if (!sel.design) return fitAll()

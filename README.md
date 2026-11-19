@@ -3,8 +3,8 @@
 A local setup for running lots of Claude Code sessions at once without losing track of them.
 
 - **Work board**: a Notion-style kanban at http://127.0.0.1:4477 (Next · Deep focus · Orchestrating · Done). Claude moves cards itself when it starts and finishes a task, and adds the links you'll need to the card's notes.
-- **Canvas per card**: a simple Figma/Miro-like canvas (frames, boxes with + buttons to chain steps, text, images, videos with notes attached). It's saved as a plain-language outline that Claude reads before it plans the task.
-- **Live session in the card**: each card shows its Claude session's status (working / waiting) and its chat, in the card and in a side panel on the canvas. You can send a follow-up from there (needs [Orca](https://github.com/stablyai/orca) terminals).
+- **A Studio board per card**: the **Studio ↗** button on a card opens that task's board in Studio, so you plan and design in one place. Planning tools: step boxes with + buttons to chain the next step, sections, pictures and videos with notes attached, and links. The ad/email HTML frames sit on the same canvas. `studio plan <board>` turns it all into plain language, and Claude reads that before it plans the task.
+- **Live session in the card**: each card shows its Claude session's status (working / waiting) and its chat, in the card and in a Claude panel in Studio. You can send a follow-up from there (needs [Orca](https://github.com/stablyai/orca) terminals).
 - **"Waiting on you" tracker**: hooks that note when a session finishes and is waiting on you. They show in the status line (`⏳ 2 · fix checkout (4m) …`) and with the `waiting` command.
 - **Studio**: a Figma-style canvas over HTML design files (ads, emails, carousels). Agents write HTML and you drag, retype and comment by hand. Your edits are written back into the file, and the `studio` CLI tells agents what you changed.
 
@@ -42,11 +42,13 @@ Point Claude at it from a project's `CLAUDE.md`: *"For HTML designs, read `<path
 | | |
 |---|---|
 | `board` | open it |
-| `card list` / `start <id> [focus]` / `new "<title>" <project> [focus]` / `done <id>` / `link <id> "<label>" <url>` | what Claude runs (you can too) |
+| `card list` / `start <id> [focus]` / `new "<title>" <project> [focus]` / `done <id>` / `link <id> "<label>" <url>` / `studio <id> [board]` | what Claude runs (you can too) |
 | `waiting` | sessions waiting on you |
 
 - Projects (the colored tags) are whatever names you give cards, e.g. `card new "Launch emails" Acme`.
-- Data lives in `~/.claude/scripts/board/`: `board.json`, `canvases/`, `media/`. Every save also keeps a snapshot in `history/`.
+- Data lives in `~/.claude/scripts/board/` (`board.json`; every save also keeps a snapshot in `history/`). Each card's Studio board folder is `~/Studio/<project>/<card title>/`.
+- Studio must be on your PATH as `studio` (see the Studio step above) so the board can start it. Or set `STUDIO_CLI` to the path of `studio/bin/studio`.
+- The old per-card Excalidraw canvas is still included (`/canvas/<id>`). It is used on the phone, where Studio can't be reached, and `board/canvas_to_studio.py` moves one onto its Studio board.
 - **Phone:** if [Tailscale](https://tailscale.com) is running, the board is also served on your Tailscale IP, so only your own devices can reach it.
 
 ## Layout

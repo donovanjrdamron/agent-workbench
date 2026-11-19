@@ -1,12 +1,31 @@
 import { clipText, copy, deleteSelection, duplicate, editSelected, finishEditing, fitAll, fitSelection, insertImages, nudge, paste, redo, selectParent, undo, undoStyle, zOrder, zoomTo } from './commands'
 import { get, select, set, toast, type Tool } from './store'
+import { addLink, addMedia, duplicateItems, looksLikeUrl, mediaFiles, nudgeItems, removeItems, selectItems, startEdit, viewCenter } from './items'
 
-const TOOL_KEYS: Record<string, Tool> = { v: 'move', h: 'hand', t: 'text', r: 'rect', o: 'ellipse', c: 'note' }
+const TOOL_KEYS: Record<string, Tool> = { v: 'move', h: 'hand', f: 'frame', t: 'text', r: 'rect', o: 'ellipse', c: 'note', b: 'step', s: 'section' }
 // Typing means a text field. A dropdown or colour swatch that still has focus after a choice must not swallow ⌘Z, ⌫ and the arrows.
 const NOT_TEXT = new Set(['color', 'checkbox', 'radio', 'range', 'file', 'button', 'submit'])
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && !NOT_TEXT.has((t as HTMLInputElement).type)))
 
+/** Keys for selected planning objects. Runs before the design shortcuts and keeps them from acting on a design. */
+function itemKeys(e: KeyboardEvent) {
+  const s = get()
+  if (typing(e.target) || s.ask || s.editing || !s.isel.length) return
+  const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase()
+  const one = s.isel.length === 1 ? s.items[s.isel[0]] : null
+  const take = () => { e.preventDefault(); e.stopImmediatePropagation() }
+  if (k === 'backspace' || k === 'delete') { if (!e.repeat) removeItems(s.isel); return take() }
+  if (k === 'escape') { selectItems([]); return take() }
+  if (k === 'enter' && one && one.kind !== 'arrow' && (one.kind === 'box' || one.kind === 'text' || one.kind === 'section')) { startEdit(one.id); return take() }
+  if (k.startsWith('arrow') && !mod) { const d = e.shiftKey ? 50 : 10; nudgeItems(k === 'arrowleft' ? -d : k === 'arrowright' ? d : 0, k === 'arrowup' ? -d : k === 'arrowdown' ? d : 0); return take() }
+  if (mod && k === 'd') { duplicateItems(); return take() }
+  if (mod && (k === 'c' || k === 'x')) return take() // design copy/cut must not act on a design that is not selected
+  // just made a box (or picked an empty one) and started typing: the key goes into it
+  if (!mod && !e.altKey && e.key.length === 1 && one && (one.kind === 'box' || one.kind === 'text') && !one.text) { startEdit(one.id, e.key); return take() }
+}
+
 export function installKeys() {
+  window.addEventListener('keydown', itemKeys, true)
   const down = (e: KeyboardEvent) => {
     if (typing(e.target) && !get().ask) { if (e.key === 'Escape') (e.target as HTMLElement).blur(); return }
     const s = get()
@@ -51,12 +70,15 @@ export function installKeys() {
     const s = get()
     const d = s.sel.design ? s.designs[s.sel.design] : null
     if (d) insertImages(d.id, files, { x: d.x + d.w / 2, y: d.y + d.h / 2 })
-    else toast('Click a design first, then paste or drop the image')
+    else insertImages(null, files, { x: (s.size.w / 2 - s.view.x) / s.view.z, y: (s.size.h / 2 - s.view.y) / s.view.z }) // nothing selected: onto the board, in the middle of the view
   }
   window.addEventListener('paste', (e) => {
     if (typing(e.target) || get().editing) return
     const files = images(e.clipboardData)
     e.preventDefault()
+    const pasted = e.clipboardData?.getData('text/plain') || ''
+    if (!files.length && looksLikeUrl(pasted) && !get().sel.sids.length) { addLink(pasted); return } // a link pasted onto the board
+    if (files.length && !get().sel.design) { addMedia(mediaFiles(files), viewCenter()); return } // a screenshot pasted onto the bare board
     // an element copied here (⌘C) wins over a screenshot still sitting on the clipboard from earlier
     const text = e.clipboardData?.getData('text/plain') || ''
     if (files.length && !(text && text === clipText())) toSelected(files)

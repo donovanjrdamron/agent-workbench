@@ -1,9 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { addComment, cancelEditing, finishEditing, insert, insertImages, local, moveProps, mover, selectFresh, startEditing, style, zoomTo, type Mover } from '../commands'
-import { boxOf, designAt, docOf, elOf, frames, isPage, isReloading, isRoot, isTextLeaf, markReloading, pick, restoreSelection, sidOf } from '../dom'
+import { addComment, addLoose, cancelEditing, createFrame, finishEditing, fitLoose, insert, insertImages, local, moveOut, moveProps, mover, selectFresh, startEditing, style, zoomTo, type Mover } from '../commands'
+import { boxOf, designAt, docOf, elOf, frameAt, frames, isPage, isReloading, isRoot, isTextLeaf, LOOSE_PAD, markReloading, pick, piecesOf, quiet, remeasure, restoreSelection, sidOf } from '../dom'
 import { saveLayout } from '../net'
 import { bump, get, select, set, toast, useStore, type Box, type Guide } from '../store'
 import { Overlay } from './Overlay'
+import { ItemsBelow, ItemsTop } from './Items'
+import { addMedia, addSection, addStep, addText, mediaFiles } from '../items'
 import { prepareImages } from '../alpha'
 
 type Pt = { x: number; y: number }
@@ -14,7 +16,10 @@ type Drag =
   | { kind: 'frame'; design: string; p0: Pt; x0: number; y0: number; moved: boolean }
   | { kind: 'marquee'; design: string | null; p0: Pt }
   | { kind: 'resize'; design: string; handle: string; p0: Pt; el: HTMLElement; m: Mover; bw: number; bh: number; img: boolean; box0: Box; init: Record<string, string>; last: Record<string, string | null> }
-  | { kind: 'create'; design: string; p0: Pt; shape: 'rect' | 'ellipse' }
+  | { kind: 'create'; design: string | null; p0: Pt; shape: 'rect' | 'ellipse' }
+  | { kind: 'newframe'; p0: Pt }
+  | { kind: 'newsection'; p0: Pt }
+  | { kind: 'fresize'; design: string; handle: string; p0: Pt; w0: number; h0: number; root: HTMLElement; init: { width: string; height: string } }
 
 const union = (bs: Box[]): Box => {
   const x0 = Math.min(...bs.map((b) => b.x)), y0 = Math.min(...bs.map((b) => b.y))
@@ -61,7 +66,7 @@ const DesignFrame = memo(function DesignFrame({ id, live }: { id: string; live: 
       let r = art.getBoundingClientRect()
       const iw = Math.max(iframe.offsetWidth, Math.ceil(r.right))
       if (first && iw !== iframe.offsetWidth) { iframe.style.width = `${iw}px`; r = art.getBoundingClientRect() }
-      next = { iw, ih: Math.max(100, Math.ceil(r.bottom)), ox: r.left, oy: r.top }
+      next = cur.loose ? { iw: Math.ceil(r.right) + LOOSE_PAD, ih: Math.ceil(r.bottom) + LOOSE_PAD, ox: r.left, oy: r.top } : { iw, ih: Math.max(100, Math.ceil(r.bottom)), ox: r.left, oy: r.top }
       w = Math.round(r.width); h = Math.round(r.height)
     } else {
       width = cur.width || 1200
@@ -77,7 +82,7 @@ const DesignFrame = memo(function DesignFrame({ id, live }: { id: string; live: 
     if (w !== cur.w || h !== cur.h || width !== cur.width) {
       const fresh = get().designs[id] || cur // never write back a stale position
       set({ designs: { ...get().designs, [id]: { ...fresh, w, h, width } } })
-      saveLayout([{ id, w, h, width }])
+      if (!quiet.has(id)) saveLayout([{ id, w, h, width }])
     }
     bump()
     // learn what each picture really looks like, then redraw boxes around the visible part
@@ -96,7 +101,8 @@ const DesignFrame = memo(function DesignFrame({ id, live }: { id: string; live: 
     measure(true)
     landed()
     const doc = ref.current?.contentDocument
-    doc?.fonts?.ready.then(() => measure(false))
+    // a loose piece's file is kept the size of the piece: after copy was retyped (or an undo), fit it again
+    doc?.fonts?.ready.then(() => { measure(false); if (get().designs[id]?.loose && !get().editing) setTimeout(() => { if (ref.current?.contentDocument === doc && !get().editing) fitLoose(id) }, 60) })
     setTimeout(() => measure(false), 500)
     const after = get().afterLoad
     if (after && after.design === id) {
@@ -119,17 +125,18 @@ const DesignFrame = memo(function DesignFrame({ id, live }: { id: string; live: 
     }, 400)
     return () => clearInterval(t)
   }, [live, rev]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { remeasure.set(id, () => measure(false)); return () => { remeasure.delete(id) } }) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { frames.delete(id) }, [id])
   useEffect(() => { if (!live) { frames.delete(id); setBox(null) } }, [live, id])
 
   if (!d) return null
   const src = `/b/${encodeURIComponent(board)}/${id.split('/').map(encodeURIComponent).join('/')}?studio=1&rev=${rev}`
   return (
-    <div className="design" style={{ left: d.x, top: d.y, width: d.w, height: d.h }}>
+    <div className={`design${d.loose ? ' loose' : ''}`} style={{ left: d.x, top: d.y, width: d.w, height: d.h }}>
       {live
         ? <iframe ref={ref} src={src} onLoad={onLoad} title={id} tabIndex={-1}
             style={{ left: -(box?.ox || 0), top: -(box?.oy || 0), width: box?.iw ?? d.width ?? Math.max(1080, d.w), height: box?.ih ?? Math.max(1920, d.h), pointerEvents: editing ? 'auto' : 'none' }} />
-        : <div className="placeholder">{id.replace(/^ads\//, '').replace(/\/index(-9x16)?\.html$/, '$1')}</div>}
+        : <div className="placeholder">{d.loose ? '' : d.title || id.replace(/^ads\//, '').replace(/\/index(-9x16)?\.html$/, '$1')}</div>}
     </div>
   )
 })
@@ -164,7 +171,7 @@ export function Canvas() {
   const vis = { x: -view.x / view.z, y: -view.y / view.z, w: size.w / view.z, h: size.h / view.z }
   const near = order.filter((id) => {
     const d = designs[id]
-    return d && d.w * view.z > 30 && d.x < vis.x + vis.w * 1.5 && d.x + d.w > vis.x - vis.w * 0.5 && d.y < vis.y + vis.h * 1.5 && d.y + d.h > vis.y - vis.h * 0.5
+    return d && (d.loose || d.w * view.z > 30) && d.x < vis.x + vis.w * 1.5 && d.x + d.w > vis.x - vis.w * 0.5 && d.y < vis.y + vis.h * 1.5 && d.y + d.h > vis.y - vis.h * 0.5
   })
   const cx = vis.x + vis.w / 2, cy = vis.y + vis.h / 2
   const liveSet = new Set(near.sort((a, b) => Math.hypot(designs[a].x + designs[a].w / 2 - cx, designs[a].y + designs[a].h / 2 - cy) - Math.hypot(designs[b].x + designs[b].w / 2 - cx, designs[b].y + designs[b].h / 2 - cy)).slice(0, 28))
@@ -197,7 +204,17 @@ export function Canvas() {
     if (e.button === 1 || s.tool === 'hand' || s.space) { drag.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: s.view.x, vy: s.view.y }; return }
     if (e.button !== 0) return
 
+    const fh = t.closest<HTMLElement>('[data-fhandle]')?.dataset.fhandle
+    if (fh && s.sel.design && frames.get(s.sel.design)?.root) {
+      const root = frames.get(s.sel.design)!.root!, dd = s.designs[s.sel.design]
+      quiet.add(s.sel.design)
+      drag.current = { kind: 'fresize', design: s.sel.design, handle: fh, p0: p, w0: dd.w, h0: dd.h, root, init: { width: root.style.width, height: root.style.height } }
+      return
+    }
     const handle = t.closest<HTMLElement>('[data-handle]')?.dataset.handle
+    // a loose piece is resized by its own outline: the handles act on the piece inside
+    const lone = s.sel.design && s.designs[s.sel.design]?.loose && !s.sel.sids.length ? piecesOf(s.sel.design) : []
+    if (handle && lone.length === 1) { select(s.sel.design, [sidOf(lone[0])]); s.sel = get().sel }
     if (handle && s.sel.design && s.sel.sids.length === 1 && !isPage(s.sel.design)) {
       const el = elOf(s.sel.design, s.sel.sids[0])
       if (el) {
@@ -213,13 +230,18 @@ export function Canvas() {
       drag.current = { kind: 'frame', design: lab, p0: p, x0: s.designs[lab].x, y0: s.designs[lab].y, moved: false }
       return
     }
+    if (s.tool === 'frame') { drag.current = { kind: 'newframe', p0: p }; return }
+    if (s.tool === 'section') { drag.current = { kind: 'newsection', p0: p }; return }
+    if (s.tool === 'step') { e.preventDefault(); addStep(p); return } // (no default: the new box keeps the keyboard)
     const design = designAt(p)
     if (s.tool === 'note') { if (design) addComment(design, p, pick(design, p, false)); return }
     if (s.tool === 'text') {
-      if (design) { const l = local(design, p); insert(design, `<div style="position:absolute;left:${l.x}px;top:${l.y}px;font-size:48px;font-weight:600;line-height:1.1;white-space:nowrap">Text</div>`, true) }
+      const TEXT = 'font-size:48px;font-weight:600;line-height:1.1;white-space:nowrap'
+      if (design && !s.designs[design].loose && !isPage(design)) { const l = local(design, p); insert(design, `<div style="position:absolute;left:${l.x}px;top:${l.y}px;${TEXT}">Text</div>`, true) }
+      else addLoose(`<div style="position:absolute;left:0px;top:0px;${TEXT};color:#ffffff">Text</div>`, { x: p.x, y: p.y, w: 110, h: 54 }, 'text', true)
       return
     }
-    if (s.tool === 'rect' || s.tool === 'ellipse') { if (design) drag.current = { kind: 'create', design, p0: p, shape: s.tool }; return }
+    if (s.tool === 'rect' || s.tool === 'ellipse') { drag.current = { kind: 'create', design: design && !s.designs[design].loose && !isPage(design) ? design : null, p0: p, shape: s.tool }; return }
 
     if (!design) { select(null); return }
     // First click picks the frame. Only an already-selected frame lets you reach inside it.
@@ -282,10 +304,18 @@ export function Canvas() {
     }
     const z = s.view.z
     if (d.kind === 'pan') { set({ view: { ...s.view, x: d.vx + e.clientX - d.sx, y: d.vy + e.clientY - d.sy } }); return }
+    if (d.kind === 'fresize') {
+      const w = d.handle.includes('e') ? Math.max(20, Math.round(d.w0 + p.x - d.p0.x)) : d.w0
+      const h = d.handle.includes('s') ? Math.max(20, Math.round(d.h0 + p.y - d.p0.y)) : d.h0
+      d.root.style.width = `${w}px`; d.root.style.height = `${h}px`
+      remeasure.get(d.design)?.()
+      return
+    }
     if (d.kind === 'frame') {
       if (!d.moved && Math.hypot((p.x - d.p0.x) * z, (p.y - d.p0.y) * z) < 4) return
       d.moved = true
       const cur = s.designs[d.design]
+      if (cur.loose) { const to = frameAt(p); if (to !== (s.drop?.to ?? null) || !to !== !s.drop) set({ drop: to ? { to } : null }) }
       set({ designs: { ...s.designs, [d.design]: { ...cur, x: Math.round(d.x0 + p.x - d.p0.x), y: Math.round(d.y0 + p.y - d.p0.y) } } })
       return
     }
@@ -310,6 +340,12 @@ export function Canvas() {
       }
       for (const m of d.movers) for (const [k, v] of Object.entries(moveProps(m, dx, dy))) { if (v === null) m.el.style.removeProperty(k); else m.el.style.setProperty(k, v) }
       ;(d as { last?: Pt }).last = { x: dx, y: dy }
+      // outside its own frame: it is on its way to another frame, or onto the bare board
+      const src = s.designs[d.design]
+      const inside = p.x >= src.x && p.x <= src.x + src.w && p.y >= src.y && p.y <= src.y + src.h
+      const to = frameAt(p)
+      const drop = to && to !== d.design ? { to } : !inside && !src.loose ? { to: null } : null
+      if (drop?.to !== s.drop?.to || !drop !== !s.drop) set({ drop })
       bump()
       return
     }
@@ -346,7 +382,7 @@ export function Canvas() {
       bump()
       return
     }
-    if (d.kind === 'marquee' || d.kind === 'create') {
+    if (d.kind === 'marquee' || d.kind === 'create' || d.kind === 'newframe' || d.kind === 'newsection') {
       const box = { x: Math.min(d.p0.x, p.x), y: Math.min(d.p0.y, p.y), w: Math.abs(p.x - d.p0.x), h: Math.abs(p.y - d.p0.y) }
       if (d.kind === 'create' && e.shiftKey) box.w = box.h = Math.max(box.w, box.h)
       set({ marquee: box })
@@ -364,7 +400,35 @@ export function Canvas() {
     if (!d) return
     try { ref.current!.releasePointerCapture(e.pointerId) } catch { /* already released */ }
     const s = get()
-    if (d.kind === 'frame') { if (d.moved) { const c = s.designs[d.design]; saveLayout([{ id: d.design, x: c.x, y: c.y }], [{ id: d.design, x: d.x0, y: d.y0 }]) } return }
+    if (d.kind === 'fresize') {
+      quiet.delete(d.design)
+      const c = s.designs[d.design]
+      if (c.w !== d.w0 || c.h !== d.h0) { style(d.design, [d.root], { width: `${c.w}px`, height: `${c.h}px` }, true); saveLayout([{ id: d.design, w: c.w, h: c.h }]) }
+      return
+    }
+    if (d.kind === 'newsection') {
+      const box = s.marquee
+      set({ marquee: null })
+      addSection(box && box.w > 40 && box.h > 40 ? box : { x: d.p0.x, y: d.p0.y, w: 2400, h: 1400 })
+      return
+    }
+    if (d.kind === 'newframe') {
+      const box = s.marquee
+      set({ marquee: null })
+      // a drag draws the frame; a plain click drops a 4:5 ad there
+      createFrame(box && box.w > 8 && box.h > 8 ? box : { x: d.p0.x, y: d.p0.y, w: 1080, h: 1350 })
+      return
+    }
+    if (d.kind === 'frame') {
+      const drop = s.drop
+      set({ drop: null })
+      if (!d.moved) return
+      const c = s.designs[d.design]
+      // a loose piece let go over a frame goes into it
+      if (c.loose && drop?.to && piecesOf(d.design).length) { moveOut(d.design, piecesOf(d.design), drop.to).then((ok) => { if (!ok) { const now = get().designs[d.design]; if (now) set({ designs: { ...get().designs, [d.design]: { ...now, x: d.x0, y: d.y0 } } }) } }); return }
+      saveLayout([{ id: d.design, x: c.x, y: c.y }], [{ id: d.design, x: d.x0, y: d.y0 }])
+      return
+    }
     if (d.kind === 'move') {
       set({ guides: [] })
       const last = (d as { last?: Pt }).last
@@ -374,17 +438,22 @@ export function Canvas() {
         else if (!d.shift && d.was && s.sel.sids.length > 1) select(d.design, [d.clicked])
         return
       }
+      const drop = s.drop
+      set({ drop: null })
+      if (drop) { moveOut(d.design, d.els, drop.to, { movers: d.movers, dx: last.x, dy: last.y }); return }
       for (const m of d.movers) style(d.design, [m.el], moveProps(m, last.x, last.y))
-      style(d.design, [], {}, true)
+      if (s.designs[d.design]?.loose) fitLoose(d.design)
+      else style(d.design, [], {}, true)
       return
     }
-    if (d.kind === 'resize') { if (Object.keys(d.last).length) style(d.design, [d.el], d.last, true); return }
+    if (d.kind === 'resize') { if (Object.keys(d.last).length) { if (s.designs[d.design]?.loose) { style(d.design, [d.el], d.last); fitLoose(d.design); select(d.design, []) } else style(d.design, [d.el], d.last, true) } return }
     if (d.kind === 'marquee') { set({ marquee: null }); return }
     if (d.kind === 'create') {
       const box = s.marquee
       set({ marquee: null })
-      const a = local(d.design, box && box.w > 3 ? box : d.p0)
       const w = box && box.w > 3 ? Math.round(box.w) : 200, h = box && box.h > 3 ? Math.round(box.h) : 200
+      if (!d.design) { const o = box && box.w > 3 ? box : d.p0; addLoose(`<div style="position:absolute;left:0px;top:0px;width:${w}px;height:${h}px;background:#d9d9d9${d.shape === 'ellipse' ? ';border-radius:50%' : ''}"></div>`, { x: o.x, y: o.y, w, h }, d.shape === 'ellipse' ? 'circle' : 'box'); return }
+      const a = local(d.design, box && box.w > 3 ? box : d.p0)
       insert(d.design, `<div style="position:absolute;left:${a.x}px;top:${a.y}px;width:${w}px;height:${h}px;background:#d9d9d9${d.shape === 'ellipse' ? ';border-radius:50%' : ''}"></div>`)
     }
   }
@@ -392,6 +461,8 @@ export function Canvas() {
   const onDouble = (e: React.MouseEvent) => {
     const s = get()
     if (s.tool !== 'move') return
+    const lab = (e.target as HTMLElement).closest<HTMLElement>('[data-label]')?.dataset.label
+    if (lab) { set({ renaming: lab }); return }
     const p = toWorld(e)
     const design = designAt(p)
     if (!design) return
@@ -424,10 +495,22 @@ export function Canvas() {
       onDoubleClick={onDouble}
       onContextMenu={(e) => e.preventDefault()}
       onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => { e.preventDefault(); const p = toWorld(e); const design = designAt(p); const files = [...e.dataTransfer.files]; if (!files.length) return; if (design) insertImages(design, files, p); else toast('Drop the image on a design') }}
+      onDrop={(e) => {
+        e.preventDefault()
+        const p = toWorld(e), design = designAt(p), files = [...e.dataTransfer.files]
+        if (!files.length) return
+        // into an ad: pictures go into its HTML. On the bare board (and videos anywhere): planning media you can add notes to.
+        const inAd = design && !get().designs[design]?.loose
+        const pics = files.filter((f) => f.type.startsWith('image/'))
+        if (inAd && pics.length) insertImages(design, pics, p)
+        const rest = inAd ? mediaFiles(files).filter((f) => !f.type.startsWith('image/')) : mediaFiles(files)
+        if (rest.length) addMedia(rest, p)
+      }}
     >
       <div className="world" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
+        <ItemsBelow />
         {order.map((id) => <DesignFrame key={id} id={id} live={liveSet.has(id)} />)}
+        <ItemsTop />
       </div>
       <Overlay />
     </div>

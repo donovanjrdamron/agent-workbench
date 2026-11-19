@@ -5,6 +5,7 @@ import { connect, refreshBoards } from './net'
 import { Left } from './panels/Left'
 import { Props } from './panels/Props'
 import { Toolbar } from './panels/Toolbar'
+import { AgentPanel } from './panels/Agent'
 import { get, useStore } from './store'
 
 export function Editor() {
@@ -51,6 +52,7 @@ export function Editor() {
       <main className="stage">
         {board ? <Canvas /> : <div className="loading">{ready && !boards.length ? 'No boards yet. Click + (top left) and point it at a folder of HTML designs.' : 'Loading…'}</div>}
         <Toolbar />
+        {board && <AgentPanel />}
         {board && !connected && <div className="offline">Studio is not answering. Nothing you change is saved until it is back.</div>}
         {toastMsg && <div className="toast">{toastMsg}</div>}
         {asking && (

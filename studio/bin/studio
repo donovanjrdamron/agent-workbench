@@ -21,6 +21,9 @@ the user tweaks elements by hand; their tweaks are written into your file as inl
   studio board add <name> <folder>           put a folder of HTML designs on the canvas
   studio board rm <name>                     take it off (files are untouched)
   studio designs <board>                     every design file, its size and open comments
+  studio plan <board>                        the whole board in plain language: sections, steps in arrow order,
+                                             notes on pictures/videos (with file paths), links, designs, comments.
+                                             Read it before planning a task that has a board.
 
 Before you edit a design the user has touched:
   studio changes <board> [design]            what they changed since your last write, element by element
@@ -119,10 +122,11 @@ async function main() {
       console.log(b.root)
       for (const d of b.designs) {
         const open = b.comments.filter((c) => c.design === d.id && !c.resolved).length
-        console.log(`  ${d.id}  ${d.w}x${d.h}${open ? `  ${open} open comment${open > 1 ? 's' : ''}` : ''}`)
+        console.log(`  ${d.id}  ${d.w}x${d.h}${d.title ? `  "${d.title}"` : ''}${d.loose ? '  (loose piece on the board)' : ''}${open ? `  ${open} open comment${open > 1 ? 's' : ''}` : ''}`)
       }
       return
     }
+    case 'plan': return process.stdout.write(await call('GET', `/api/plan?${q({ board: need(board, 'board') })}`))
     case 'tree': return process.stdout.write(await call('GET', `/api/tree?${q({ board: need(board, 'board'), design: need(pos[1], 'design') })}`))
     case 'changes': {
       const by = flags.all ? '' : flags.by || 'user'

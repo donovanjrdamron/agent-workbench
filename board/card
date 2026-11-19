@@ -5,6 +5,8 @@
   card new "<title>" <brand> [focus]   create a card already in progress
   card done <id>                 move card to Done
   card link <id> "<label>" <url> add a link to the card's notes (skips duplicates)
+  card studio <id> [board]       the card's Studio board (plan + designs): prints its name, making it if needed.
+                                 With a board name: link the card to that existing Studio board instead.
 """
 import json, os, re, sys, time, fcntl
 DATA = os.path.join(os.path.dirname(os.path.realpath(__file__)), "board.json")
@@ -31,9 +33,34 @@ def link(c):
     if pid:
         c["agent"] = {"pid": pid, "terminal": term, "linked": int(time.time())}
 
+def studio_board(cid, name=None):
+    """Make (or link) the card's Studio board through the board server, which knows how to reach Studio."""
+    import urllib.request, urllib.error
+    port = os.environ.get("BOARD_PORT", "4477")
+    if name:
+        with open(DATA + ".lock", "w") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            b = json.load(open(DATA))
+            c = next((c for c in b["cards"] if c["id"] == cid), None)
+            if not c: print("no card", cid); return 1
+            c["studio"] = name
+            import shutil; shutil.copy2(DATA, DATA + ".bak")
+            tmp = DATA + ".tmp"; json.dump(b, open(tmp, "w"), indent=1); os.replace(tmp, DATA)
+    try:
+        r = json.loads(urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/studio/{cid}", method="POST"), timeout=90).read())
+    except urllib.error.HTTPError as e:
+        print("Studio:", json.loads(e.read() or b"{}").get("error", e.code)); return 1
+    except Exception as e:
+        print("work board server not reachable:", e); return 1
+    print(f'{cid} -> Studio board "{r["board"]}"  {r["url"]}\n  read its plan: studio plan "{r["board"]}"')
+    return 0
+
 def main(a):
-    if not a or a[0] not in ("list","start","new","done","link"):
+    if not a or a[0] not in ("list","start","new","done","link","studio"):
         print(__doc__.strip()); return 1
+    if a[0] == "studio":
+        if len(a) < 2: print("need a card id"); return 1
+        return studio_board(a[1], a[2] if len(a) > 2 else None)
     with open(DATA + ".lock", "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
         b = json.load(open(DATA))
@@ -42,7 +69,7 @@ def main(a):
             rank = {"Deep focus": 0, "Orchestrating": 1, "In progress": 1, "Next": 2}
             for c in sorted(cards, key=lambda c: (rank.get(c["status"], 3), c.get("brand",""))):
                 if c["status"] != "Done":
-                    print(f'{c["id"]} | {c["status"]} | {c.get("brand","")} | {c["title"]}')
+                    print(f'{c["id"]} | {c["status"]} | {c.get("brand","")} | {c["title"]}' + (f' | studio: {c["studio"]}' if c.get("studio") else ''))
             return 0
         if a[0] == "new":
             if len(a) < 2: print("need a title"); return 1

@@ -5,6 +5,12 @@ import { get, set, type Box } from './store'
 
 export interface Frame { iframe: HTMLIFrameElement; ox: number; oy: number; root: HTMLElement | null; art: boolean }
 export const frames = new Map<string, Frame>()
+/** Ask a design to measure itself again (its artboard was resized). */
+export const remeasure = new Map<string, () => void>()
+/** Designs being resized by hand: their size is saved once, at the end. */
+export const quiet = new Set<string>()
+/** Room a loose piece's file leaves around it (see the server's looseFile). */
+export const LOOSE_PAD = 400
 
 const INLINE = new Set(['EM', 'I', 'B', 'STRONG', 'SPAN', 'U', 'SMALL', 'SUP', 'SUB', 'MARK', 'A', 'BR', 'S', 'CODE', 'FONT'])
 export const sidOf = (el: Element) => Number((el as HTMLElement).dataset?.sid ?? el.getAttribute('data-sid'))
@@ -30,6 +36,25 @@ export function boxOf(design: string, el: Element): Box {
   if (!f || !d) return { x: 0, y: 0, w: 0, h: 0 }
   return { x: d.x + r.left - f.ox, y: d.y + r.top - f.oy, w: r.width, h: r.height }
 }
+
+/** The frame (not a loose piece) under a canvas point. */
+export function frameAt(pt: { x: number; y: number }, except?: string): string | null {
+  const { designs, order } = get()
+  for (let i = order.length - 1; i >= 0; i--) {
+    const d = designs[order[i]]
+    if (d && !d.loose && d.id !== except && pt.x >= d.x && pt.x <= d.x + d.w && pt.y >= d.y && pt.y <= d.y + d.h) return d.id
+  }
+  return null
+}
+/** An element's whole box in canvas coordinates (for a picture: its layout box, transparent parts included). */
+export function rawBox(design: string, el: Element): Box {
+  const f = frames.get(design), d = get().designs[design]
+  const r = el.getBoundingClientRect()
+  if (!f || !d) return { x: 0, y: 0, w: 0, h: 0 }
+  return { x: d.x + r.left - f.ox, y: d.y + r.top - f.oy, w: r.width, h: r.height }
+}
+/** The pieces of a design: the artboard's own elements. */
+export const piecesOf = (design: string) => Array.from(frames.get(design)?.root?.children || []).filter((c) => c.hasAttribute('data-sid')) as HTMLElement[]
 
 export function designAt(pt: { x: number; y: number }): string | null {
   const { designs, order } = get()

@@ -4,7 +4,7 @@ import { elOf } from '../dom'
 import { frames, isRoot, isTextLeaf, label, sidOf } from '../dom'
 import { addBoard, connect, newDesign, refreshBoards } from '../net'
 import { get, select, set, toast, useStore } from '../store'
-import { shortName } from '../canvas/Overlay'
+import { nameOf } from '../canvas/Overlay'
 import { Icon } from '../ui'
 
 const SKIP = new Set(['SCRIPT', 'STYLE', 'BR', 'LINK', 'META', 'TITLE', 'HEAD'])
@@ -117,7 +117,7 @@ export function Left() {
       <div className="pages designs">
         {order.map((id) => {
           const open = comments.filter((c) => c.design === id && !c.resolved).length
-          return <div key={id} className={`page-row${active === id ? ' active' : ''}`} title={designs[id]?.dirty ? `${id}  (has your hand edits)` : id} onClick={() => focusDesign(id)}><span className="layer-name">{shortName(id)}{designs[id]?.dirty ? ' •' : ''}</span>{open > 0 && <span className="badge">{open}</span>}</div>
+          return <div key={id} className={`page-row${active === id ? ' active' : ''}`} title={designs[id]?.dirty ? `${id}  (has your hand edits)` : id} onClick={() => focusDesign(id)}><span className="layer-name">{nameOf(designs[id], id)}{designs[id]?.dirty && !designs[id]?.loose ? ' •' : ''}</span>{open > 0 && <span className="badge">{open}</span>}</div>
         })}
         {!order.length && <p className="empty">No HTML files in this folder yet. The agent's files appear here as soon as they are written.</p>}
       </div>

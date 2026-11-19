@@ -11,14 +11,15 @@ import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { createServer as createVite } from 'vite'
 import { annotate, applyEdits, describe, indexHtml, lint, oneTagPerLine, outline } from './html'
-import { SIZES, type Board, type Comment, type Design, type Edit } from '../shared/types'
+import { SIZES, type Board, type Comment, type Design, type Edit, type Item } from '../shared/types'
+import { planOf } from './plan'
 
 const PORT = Number(process.env.STUDIO_PORT || 4517)
 const HOME = os.homedir()
 // The editor's own state (board list, layouts, baselines, version history) lives on the local
 // disk, never in a cloud-synced folder: those can hand back files slowly or not at all.
 const ROOT = process.env.STUDIO_DIR || path.join(HOME, 'Library/Application Support/Studio')
-const EXPORTS = process.env.STUDIO_EXPORTS || (process.env.STUDIO_DIR ? path.join(ROOT, 'exports') : path.join(ROOT, 'exports'))
+const EXPORTS = process.env.STUDIO_EXPORTS || (process.env.STUDIO_DIR ? path.join(ROOT, 'exports') : path.join(ROOT, "exports"))
 const APP_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 fs.mkdirSync(path.join(ROOT, 'boards'), { recursive: true })
 
@@ -33,12 +34,13 @@ const readReg = (): Reg[] => (fs.existsSync(regPath) ? JSON.parse(fs.readFileSyn
 const writeReg = (r: Reg[]) => fs.writeFileSync(regPath, JSON.stringify(r, null, 1))
 const safeName = (n: string) => /^[\w .()&,-]{1,80}$/.test(n) && !n.startsWith('.')
 
-interface Layout { x: number; y: number; w: number; h: number; width?: number }
+interface Layout { x: number; y: number; w: number; h: number; width?: number; title?: string }
 /** `seen`: the rev of each design as the server last saw it, so a file changed while Studio was closed is not mistaken for hand edits. */
-interface State { designs: Record<string, Layout>; comments: Comment[]; seen?: Record<string, string> }
+interface State { designs: Record<string, Layout>; comments: Comment[]; seen?: Record<string, string>; items?: Item[] }
 interface Src { text: string; rev: string; mtime: number; size: number }
 /** One undo step. null means the file did not exist on that side. */
-interface Hist { design: string; before: string | null; after: string | null; moves?: { id: string; from: { x: number; y: number }; to: { x: number; y: number } }[]; ts?: number }
+/** `group`: steps that belong to one action (a piece dragged from one file to another) and are undone together. */
+interface Hist { design: string; before: string | null; after: string | null; group?: string; layout?: Layout; moves?: { id: string; from: { x: number; y: number }; to: { x: number; y: number } }[]; ts?: number; items?: { before: Item[]; after: Item[] }; key?: string }
 interface Rt {
   name: string
   root: string
@@ -55,6 +57,8 @@ interface Rt {
 const boards = new Map<string, Rt>()
 let presence: { board: string; design: string | null; sids: number[]; at: number } | null = null
 
+const LOOSE = 'loose'
+const isLoose = (id: string) => id.startsWith(LOOSE + '/')
 const SKIP_DIRS = new Set(['node_modules', 'shared', 'final', 'studio-assets', 'html-archive'])
 function listHtml(root: string): string[] {
   const start = fs.existsSync(path.join(root, 'ads')) ? 'ads' : ''
@@ -70,6 +74,7 @@ function listHtml(root: string): string[] {
     }
   }
   walk(start, 0)
+  if (start) walk(LOOSE, 1) // pieces left on the board outside any frame
   return out.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 }
 
@@ -104,6 +109,11 @@ function saveState(rt: Rt) {
   if (rt.saveTimer) clearTimeout(rt.saveTimer)
   rt.saveTimer = setTimeout(() => { rt.saveTimer = null; fs.writeFileSync(path.join(rt.dir, 'state.json'), JSON.stringify(rt.state, null, 1)) }, 300)
 }
+/** The board as plain language for agents (plan.md beside state.json). */
+function writePlan(rt: Rt) {
+  try { fs.writeFileSync(path.join(rt.dir, 'plan.md'), planOf(rt.name, rt.root, payload(rt))) } catch (e) { console.error('plan.md:', (e as Error).message) }
+}
+const rangeOf = (res: http.ServerResponse) => (res.req as http.IncomingMessage | undefined)?.headers.range
 function log(rt: Rt, by: string, design: string, notes: string[]) {
   if (notes.length) fs.appendFileSync(path.join(rt.dir, 'changes.jsonl'), JSON.stringify({ ts: Date.now(), by, design, notes }) + '\n')
 }
@@ -235,14 +245,16 @@ async function loadNew(name: string): Promise<Rt> {
 }
 setInterval(() => { for (const rt of boards.values()) scan(rt).catch((e) => console.error('scan failed:', (e as Error).message)) }, 2000)
 
-const designOf = (rt: Rt, id: string): Design => ({ id, ...rt.state.designs[id], rev: rt.src.get(id)!.rev, dirty: baseRevOf(rt, id) !== rt.src.get(id)!.rev })
-const payload = (rt: Rt): Board => ({ name: rt.name, root: rt.root, designs: [...rt.src.keys()].map((id) => designOf(rt, id)), comments: rt.state.comments })
+const designOf = (rt: Rt, id: string): Design => ({ id, ...rt.state.designs[id], ...(isLoose(id) ? { loose: true } : {}), rev: rt.src.get(id)!.rev, dirty: baseRevOf(rt, id) !== rt.src.get(id)!.rev })
+const payload = (rt: Rt): Board => ({ name: rt.name, root: rt.root, designs: [...rt.src.keys()].map((id) => designOf(rt, id)), comments: rt.state.comments, items: rt.state.items || [] })
 
 function findDesign(rt: Rt, q: string): string {
   if (rt.src.has(q)) return q
   const ids = [...rt.src.keys()]
   const want = q.toLowerCase()
-  let hits = ids.filter((id) => id.toLowerCase().includes(want))
+  const titled = ids.filter((id) => rt.state.designs[id]?.title?.toLowerCase() === want)
+  if (titled.length === 1) return titled[0]
+  let hits = ids.filter((id) => id.toLowerCase().includes(want) || !!rt.state.designs[id]?.title?.toLowerCase().includes(want))
   if (hits.length > 1) { const plain = hits.filter((id) => !/9x16/i.test(id) || /9x16/i.test(q)); if (plain.length === 1) hits = plain }
   if (hits.length === 1) return hits[0]
   if (!hits.length) throw new HttpError(404, `no design matches "${q}". See: studio designs "${rt.name}"`)
@@ -288,12 +300,27 @@ function removeDesignFile(rt: Rt, id: string) {
 }
 
 function history(rt: Rt, dir: 'undo' | 'redo') {
+  const stack = dir === 'undo' ? rt.undo : rt.redo
+  const group = stack[stack.length - 1]?.group
+  let r = historyStep(rt, dir)
+  let n = 1
+  while (group && r.ok && stack[stack.length - 1]?.group === group) { r = historyStep(rt, dir); n++ }
+  return n > 1 && r.ok ? { ...r, design: null, what: 'moving a piece between frames' } : r
+}
+function historyStep(rt: Rt, dir: 'undo' | 'redo'): { ok: boolean; error?: string; design?: string | null; what?: string } {
   const from = dir === 'undo' ? rt.undo : rt.redo
   const to = dir === 'undo' ? rt.redo : rt.undo
   const next = from[from.length - 1]
-  if (next && !next.moves) fresh(rt, next.design) // before the step is taken off the stack: a 409 here must not lose it
+  if (next && !next.moves && !next.items) fresh(rt, next.design) // before the step is taken off the stack: a 409 here must not lose it
   const e = from.pop()
   if (!e) return { ok: false, error: `Nothing to ${dir}` }
+  if (e.items) { // planning objects (boxes, notes, arrows, media) changed
+    rt.state.items = structuredClone(dir === 'undo' ? e.items.before : e.items.after)
+    saveState(rt); writePlan(rt)
+    to.push(e)
+    broadcast(rt, { type: 'items', items: rt.state.items })
+    return { ok: true, design: null, what: 'board change' }
+  }
   if (e.moves) { // frames moved on the canvas
     for (const m of e.moves) if (rt.state.designs[m.id]) Object.assign(rt.state.designs[m.id], dir === 'undo' ? m.from : m.to)
     saveState(rt)
@@ -306,8 +333,8 @@ function history(rt: Rt, dir: 'undo' | 'redo') {
   const cur = rt.src.get(e.design)
   if ((cur?.text ?? null) !== expect) { from.length = 0; return { ok: false, error: 'the file changed on disk, history cleared' } }
   const listChanged = expect === null || target === null
-  if (target === null) removeDesignFile(rt, e.design)
-  else { writeDesign(rt, e.design, target); if (!rt.state.designs[e.design]) rt.state.designs[e.design] = place(rt, e.design) }
+  if (target === null) { if (rt.state.designs[e.design]) e.layout = { ...rt.state.designs[e.design] }; removeDesignFile(rt, e.design) }
+  else { writeDesign(rt, e.design, target); if (expect === null) { rt.state.designs[e.design] = e.layout || rt.state.designs[e.design] || place(rt, e.design); saveState(rt) } }
   to.push(e)
   log(rt, 'user', e.design, [dir])
   if (listChanged) broadcast(rt, { type: 'board', board: payload(rt) })
@@ -400,8 +427,9 @@ async function exportDesign(rt: Rt, id: string, o: { scale?: number; format?: Fo
 }
 
 // ---------- http ----------
-const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.mp4': 'video/mp4', '.webm': 'video/webm' }
+const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4' }
 const IMG = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif'])
+const VID = new Set(['.mp4', '.webm', '.mov', '.m4v'])
 
 function readBody(req: http.IncomingMessage, limit = 80 * 1024 * 1024): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -416,19 +444,132 @@ const json = (res: http.ServerResponse, body: unknown, status = 200) => { res.wr
 const text = (res: http.ServerResponse, body: string) => { res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); res.end(body) }
 const bodyJson = async (req: http.IncomingMessage) => JSON.parse((await readBody(req)).toString() || '{}')
 
-function template(rt: Rt, abs: string, w: number, h: number) {
+function template(rt: Rt, abs: string, w: number, h: number, bg = '#f4ece3') {
   const base = path.join(rt.root, 'shared', 'base.css')
   const link = fs.existsSync(base) ? `\n<link rel="stylesheet" href="${path.relative(path.dirname(abs), base).split(path.sep).join('/')}">` : ''
   return `<!doctype html><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">${link}
 <style>
 body{margin:0}
-.ad{position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:Inter,sans-serif;background:#f4ece3;color:#141414}
+.ad{position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:Inter,sans-serif;background:${bg};color:#141414}
 .ad>*{position:absolute}
 </style>
 <div class="ad">
 </div>
 `
+}
+
+
+// ---------- pieces moving between files ----------
+const relUrl = (u: string) => !/^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(u) && !u.startsWith('/')
+/** Rewrite the links in a piece of markup so they still point at the same files from another folder of the board. */
+function rebase(rt: Rt, html: string, from: string | null, to: string): string {
+  const toDir = path.dirname(path.join(rt.root, to))
+  const fix = (u: string): string => {
+    u = u.trim()
+    let abs: string | null = null
+    const served = u.match(/^(?:https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?)?\/b\/[^/]+\/(.+)$/) // as the browser reports it
+    if (served) abs = path.join(rt.root, decodeURIComponent(served[1].split(/[?#]/)[0]))
+    else if (from && relUrl(u)) abs = path.resolve(path.dirname(path.join(rt.root, from)), decodeURIComponent(u.split(/[?#]/)[0]))
+    if (!abs) return u
+    return path.relative(toDir, abs).split(path.sep).map(encodeURIComponent).join('/')
+  }
+  return html
+    .replace(/(\s(?:src|href|poster)\s*=\s*)(["'])(.*?)\2/gi, (_m, a, q, u) => `${a}${q}${fix(u)}${q}`)
+    .replace(/url\(\s*(&quot;|["']?)(.*?)\1\s*\)/gi, (_m, q, u) => `url(${q === '&quot;' ? "'" : q}${fix(u)}${q === '&quot;' ? "'" : q})`)
+}
+/** The fonts a file loads: its stylesheet links and @font-face rules, as they must read from another file. */
+function fontsOf(rt: Rt, from: string, to: string): string[] {
+  const src = rt.src.get(from)?.text || ''
+  const links = (src.match(/<link\b[^>]*rel\s*=\s*["']?stylesheet[^>]*>/gi) || [])
+  const faces = (src.match(/@font-face\s*\{[^}]*\}/gi) || [])
+  return [...links.map((l) => rebase(rt, l, from, to)), ...(faces.length ? [`<style>\n${faces.map((f) => rebase(rt, f, from, to)).join('\n')}\n</style>`] : [])]
+}
+const squash = (t: string) => t.replace(/\s+/g, ' ')
+function looseFile(heads: string[], w: number, h: number, html: string) {
+  return `<!doctype html><meta charset="utf-8">
+${heads.join('\n')}
+<style>
+html,body{margin:0;background:transparent}
+body{padding:${PAD}px}
+.ad{position:relative;width:${w}px;height:${h}px;font-family:Inter,sans-serif;color:#141414}
+.ad>*{position:absolute}
+</style>
+<div class="ad">
+${html}
+</div>
+`
+}
+const PAD = 400 // room around a loose piece, so a shadow or a longer line of copy is not cut off
+
+/**
+ * Move pieces from one file to another, or onto the bare board (each becomes a small file of its own under loose/).
+ * `items[].html` is the piece as it should read in its new home, written by the editor from what it looked like.
+ */
+async function transfer(rt: Rt, b: { from?: string; sids?: number[]; rev?: string; emptied?: boolean; to?: string; parent?: number; items?: { html: string; x: number; y: number; w: number; h: number; name?: string }[] }) {
+  const items = b.items || []
+  if (!items.length) throw new HttpError(400, 'nothing to move')
+  const from = b.from ? findDesign(rt, b.from) : null
+  const to = b.to ? findDesign(rt, b.to) : null
+  if (from) fresh(rt, from)
+  if (to) fresh(rt, to)
+  if (from && b.rev && rt.src.get(from)!.rev !== b.rev) throw new HttpError(409, 'the file changed since you loaded it')
+  const group = 'g_' + crypto.randomBytes(4).toString('hex')
+  const made: string[] = []
+  let newSid: number | null = null
+  let listChanged = false
+  const reloads: string[] = []
+  if (to) {
+    const cur = rt.src.get(to)!
+    let text = cur.text
+    if (from) { const have = squash(text); const extra = fontsOf(rt, from, to).filter((t) => !have.includes(squash(t))); if (extra.length) text = text.replace(/\s*$/, '\n') + extra.join('\n') + '\n' }
+    let r
+    try { r = applyEdits(text, items.map((it) => ({ kind: 'insert' as const, parent: Number(b.parent), html: rebase(rt, it.html, from, to) }))) } catch (e) { throw new HttpError(409, (e as Error).message) }
+    writeDesign(rt, to, r.source)
+    rt.undo.push({ design: to, before: cur.text, after: r.source, group })
+    log(rt, 'user', to, r.notes.map((n) => (from ? `${n} (moved here from ${from})` : n)))
+    newSid = r.newSid
+    reloads.push(to)
+  } else {
+    fs.mkdirSync(path.join(rt.root, LOOSE), { recursive: true })
+    const heads = from ? fontsOf(rt, from, `${LOOSE}/x.html`) : ['<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">']
+    for (const it of items) {
+      const stem = (it.name || 'piece').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'piece'
+      let rel = ''
+      for (let i = 1; !rel || fs.existsSync(path.join(rt.root, rel)); i++) rel = `${LOOSE}/${stem}-${i}.html`
+      const w = Math.max(1, Math.ceil(it.w)), h = Math.max(1, Math.ceil(it.h))
+      const text = looseFile(heads, w, h, rebase(rt, it.html, from, rel))
+      fs.writeFileSync(path.join(rt.root, rel), text)
+      rt.state.designs[rel] = { x: Math.round(it.x), y: Math.round(it.y), w, h }
+      await scan(rt, false, new Set([rel]))
+      rt.undo.push({ design: rel, before: null, after: text, group })
+      log(rt, 'user', rel, [from ? `piece moved out of ${from} onto the board` : 'new piece on the board'])
+      made.push(rel)
+    }
+    saveState(rt)
+    listChanged = true
+  }
+  if (from && b.sids?.length) {
+    const cur = rt.src.get(from)!
+    if (b.emptied && isLoose(from)) {
+      const layout = rt.state.designs[from] ? { ...rt.state.designs[from] } : undefined
+      removeDesignFile(rt, from)
+      rt.undo.push({ design: from, before: cur.text, after: null, group, layout })
+      listChanged = true
+    } else {
+      let r
+      try { r = applyEdits(cur.text, b.sids.map((sid) => ({ kind: 'remove' as const, sid }))) } catch (e) { throw new HttpError(409, (e as Error).message) }
+      writeDesign(rt, from, r.source)
+      rt.undo.push({ design: from, before: cur.text, after: r.source, group })
+      log(rt, 'user', from, r.notes.map((n) => `${n} (moved to ${to || 'the board'})`))
+      reloads.push(from)
+    }
+  }
+  while (rt.undo.length > 300) rt.undo.shift()
+  rt.redo = []
+  if (listChanged) broadcast(rt, { type: 'board', board: payload(rt) })
+  for (const id of reloads) broadcast(rt, { type: 'design', design: designOf(rt, id), reload: true })
+  return { ok: true, designs: made, design: to, newSid }
 }
 
 async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<boolean> {
@@ -448,6 +589,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     writeReg([...reg, { name: b.name, root }])
     return json(res, { ok: true, name: b.name, designs: (await load(b.name)).src.size }), true
   }
+  if (p === '/api/config') return json(res, { workboard: process.env.WORKBOARD_URL || 'http://127.0.0.1:4477' }), true
   if (p === '/api/selection') {
     if (!presence) return json(res, { board: null }), true
     const rt = boards.get(presence.board)
@@ -473,6 +615,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return json(res, { results: ids.map((i) => ({ design: i, findings: lint(rt.src.get(i)!.text) })) }), true
   }
   if (p === '/api/source') return text(res, rt.src.get(needId())!.text), true
+  // `from`: the design a pasted piece was copied out of, so its links can be made to work from this file
+  if (p === '/api/edit' && post && b.from && rt.src.has(b.from)) b.edits = (b.edits || []).map((e: Edit) => (e.kind === 'insert' ? { ...e, html: rebase(rt, e.html, b.from, needId()) } : e))
   if (p === '/api/edit' && post) return json(res, edit(rt, needId(), b.edits || [], { rev: b.rev, by: b.by || 'agent', origin: b.origin })), true
   if (p === '/api/delete-design' && post) {
     fresh(rt, needId())
@@ -510,7 +654,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (p === '/api/undo' && post) return json(res, history(rt, 'undo')), true
   if (p === '/api/redo' && post) return json(res, history(rt, 'redo')), true
   if (p === '/api/layout' && post) {
-    for (const d of b.designs || []) if (rt.state.designs[d.id]) Object.assign(rt.state.designs[d.id], Object.fromEntries(Object.entries(d).filter(([k, v]) => ['x', 'y', 'w', 'h', 'width'].includes(k) && typeof v === 'number')))
+    for (const d of b.designs || []) if (rt.state.designs[d.id]) Object.assign(rt.state.designs[d.id], Object.fromEntries(Object.entries(d).filter(([k, v]) => (['x', 'y', 'w', 'h', 'width'].includes(k) && typeof v === 'number') || (k === 'title' && typeof v === 'string'))))
+    if ((b.designs || []).some((d: { title?: string }) => typeof d.title === 'string')) broadcast(rt, { type: 'board', board: payload(rt) })
     saveState(rt)
     if (Array.isArray(b.from)) {
       const moves = (b.from as { id: string; x: number; y: number }[]).filter((f) => rt.state.designs[f.id]).map((f) => ({ id: f.id, from: { x: f.x, y: f.y }, to: { x: rt.state.designs[f.id].x, y: rt.state.designs[f.id].y } })).filter((m) => m.from.x !== m.to.x || m.from.y !== m.to.y)
@@ -536,6 +681,36 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     log(rt, 'agent', id || '*', ['accepted current state as the baseline'])
     return json(res, { ok: true, count: ids.length }), true
   }
+  if (p === '/api/plan') return text(res, planOf(rt.name, rt.root, payload(rt))), true
+  if (p === '/api/items' && !post) return json(res, { items: rt.state.items || [] }), true
+  if (p === '/api/items' && post) {
+    // { put: Item[] (added or changed), remove: id[] }. One call is one undo step.
+    const before = rt.state.items || []
+    const put: Item[] = Array.isArray(b.put) ? b.put : []
+    const gone = new Set<string>(Array.isArray(b.remove) ? b.remove : [])
+    const byId = new Map(before.map((i) => [i.id, i]))
+    for (const it of put) {
+      if (!it || typeof it.id !== 'string' || !it.kind) throw new HttpError(400, 'bad item')
+      byId.set(it.id, { ...byId.get(it.id), ...it })
+    }
+    for (const g of gone) byId.delete(g)
+    // arrows and notes left pointing at nothing go too
+    const alive = (ref?: string) => !ref || byId.has(ref) || rt.src.has(ref)
+    for (const [k, it] of byId) if ((it.kind === 'arrow' && (!alive(it.from) || !alive(it.to))) || (it.attach && !byId.has(it.attach))) byId.delete(k)
+    const after = [...byId.values()]
+    rt.state.items = after
+    if (b.by !== 'agent') {
+      const top = rt.undo[rt.undo.length - 1]
+      // typing into one box sends a change per pause: keep a quick run of edits to the same item as one step
+      const key = put.length === 1 && !gone.size ? put[0].id : ''
+      if (key && top?.items && top.ts && Date.now() - top.ts < 1500 && top.key === key) { top.items.after = structuredClone(after); top.ts = Date.now() }
+      else { rt.undo.push({ design: '', before: null, after: null, items: { before: structuredClone(before), after: structuredClone(after) }, ts: Date.now(), ...(key ? { key } : {}) }); if (rt.undo.length > 300) rt.undo.shift() }
+      rt.redo = []
+    }
+    saveState(rt); writePlan(rt)
+    broadcast(rt, { type: 'items', items: after, origin: b.from })
+    return json(res, { ok: true, items: after.length }), true
+  }
   if (p === '/api/comments' && !post) return json(res, { comments: rt.state.comments.filter((c) => (q.get('all') === '1' || !c.resolved) && (!id || c.design === id)).map((c) => ({ ...c, file: path.join(rt.root, c.design) })) }), true
   if (p === '/api/comments' && post) {
     if (b.add) needId(); if (b.add) rt.state.comments.push({ id: 'c_' + crypto.randomBytes(3).toString('hex'), x: 40, y: 40, target: '', text: '', author: 'user', resolved: false, replies: [], ts: Date.now(), ...b.add, design: id } as Comment)
@@ -543,23 +718,36 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     if (b.remove) rt.state.comments = rt.state.comments.filter((c) => c.id !== b.remove)
     saveState(rt)
     broadcast(rt, { type: 'comments', comments: rt.state.comments })
+    writePlan(rt)
     return json(res, { ok: true, id: rt.state.comments[rt.state.comments.length - 1]?.id }), true
   }
   if (p === '/api/new' && post) {
-    const name = String(b.name || '').trim()
+    // From the board the name is free text: it becomes the title, and the file gets a safe name of its own.
+    const title = typeof b.title === 'string' ? b.title.trim().slice(0, 200) : ''
+    let name = String(b.name || '').trim()
+    if (!name && title) name = title.replace(/[^\w .()-]+/g, '-').replace(/^[-. ]+|[-. ]+$/g, '').slice(0, 50) || 'frame'
     if (!/^[\w .()-]{1,60}$/.test(name)) throw new HttpError(400, 'bad design name')
-    const [w, h] = SIZES[b.size || '4x5'] || String(b.size).split('x').map(Number)
-    if (!w || !h) throw new HttpError(400, `bad size: ${b.size}`)
+    const [w, h] = b.w && b.h ? [Math.round(Number(b.w)), Math.round(Number(b.h))] : SIZES[b.size || '4x5'] || String(b.size).split('x').map(Number)
+    if (!(w > 0) || !(h > 0)) throw new HttpError(400, `bad size: ${b.size}`)
     const ads = fs.existsSync(path.join(rt.root, 'ads')) || !listHtml(rt.root).length
     const file = b.size === '9x16' ? 'index-9x16.html' : 'index.html'
-    const rel = ads ? `ads/${name}/${file}` : `${name}.html`
+    const relOf = (n: string) => (ads ? `ads/${n}/${file}` : `${n}.html`)
+    let rel = relOf(name)
+    if (fs.existsSync(path.join(rt.root, rel))) {
+      if (b.name) throw new HttpError(409, `already exists: ${rel}`)
+      for (let i = 2; fs.existsSync(path.join(rt.root, rel)); i++) rel = relOf(`${name} ${i}`)
+    }
     const abs = path.join(rt.root, rel)
-    if (fs.existsSync(abs)) throw new HttpError(409, `already exists: ${rel}`)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
-    fs.writeFileSync(abs, template(rt, abs, w, h))
+    const text = template(rt, abs, w, h, typeof b.bg === 'string' && /^#[0-9a-f]{3,8}$/i.test(b.bg) ? b.bg : undefined)
+    fs.writeFileSync(abs, text)
+    if (typeof b.x === 'number' && typeof b.y === 'number') rt.state.designs[rel] = { x: Math.round(b.x), y: Math.round(b.y), w, h }
     await scan(rt, false, new Set([rel])) // on the board before we answer, so `studio new` can be followed by `tree` or `shot` at once
+    if (title && rt.state.designs[rel]) { rt.state.designs[rel].title = title; saveState(rt); broadcast(rt, { type: 'board', board: payload(rt) }) }
+    if (b.by === 'user') { rt.undo.push({ design: rel, before: null, after: text }); rt.redo = [] }
     return json(res, { ok: true, design: rel, file: abs }), true
   }
+  if (p === '/api/transfer' && post) return json(res, await transfer(rt, b)), true
   if (p === '/api/copy' && post) {
     const from = path.join(rt.root, needId())
     const rel = String(b.to || '').replace(/^\/+/, '')
@@ -574,18 +762,18 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (p === '/api/upload' && post) {
     const buf = await readBody(req)
     const ext = (path.extname(q.get('name') || '') || '.png').toLowerCase()
-    if (!IMG.has(ext)) throw new HttpError(415, 'not an image')
+    if (!IMG.has(ext) && !VID.has(ext)) throw new HttpError(415, 'not an image or video')
     const dir = path.join(rt.root, 'studio-assets')
     fs.mkdirSync(dir, { recursive: true })
     const abs = path.join(dir, hash(buf.toString('binary')) + ext)
     fs.writeFileSync(abs, buf)
-    return json(res, { src: path.relative(path.dirname(path.join(rt.root, needId())), abs).split(path.sep).join('/') }), true
+    return json(res, { src: path.relative(id ? path.dirname(path.join(rt.root, id)) : path.join(rt.root, LOOSE), abs).split(path.sep).join('/'), path: path.relative(rt.root, abs).split(path.sep).join('/') }), true
   }
   if (p === '/api/export' && post) return json(res, await exportDesign(rt, needId(), b)), true
   if (p === '/api/export-all' && post) {
     const out = []
     const dir = b.out && !/\.(png|jpe?g|pdf)$/i.test(b.out) ? b.out : undefined
-    for (const d of rt.src.keys()) if (!b.match || d.toLowerCase().includes(String(b.match).toLowerCase())) out.push(await exportDesign(rt, d, { ...b, out: dir }))
+    for (const d of rt.src.keys()) if (b.match ? true : !isLoose(d)) if (!b.match || d.toLowerCase().includes(String(b.match).toLowerCase())) out.push(await exportDesign(rt, d, { ...b, out: dir }))
     return json(res, { exported: out }), true
   }
   if (p === '/api/render') {
@@ -611,7 +799,16 @@ async function serveBoardFile(res: http.ServerResponse, url: URL) {
     res.end(annotate(src))
     return
   }
-  res.writeHead(200, { 'content-type': type, 'cache-control': type.startsWith('text/html') ? 'no-store' : 'max-age=30' })
+  const range = type.startsWith('video/') ? /bytes=(\d*)-(\d*)/.exec(String(rangeOf(res) || '')) : null
+  if (range) { // videos seek with byte ranges
+    const size = fs.statSync(abs).size
+    const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]))
+    const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1
+    res.writeHead(206, { 'content-type': type, 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 })
+    fs.createReadStream(abs, { start, end }).on('error', () => res.destroy()).pipe(res)
+    return
+  }
+  res.writeHead(200, { 'content-type': type, 'cache-control': type.startsWith('text/html') ? 'no-store' : 'max-age=30', ...(type.startsWith('video/') ? { 'accept-ranges': 'bytes' } : {}) })
   fs.createReadStream(abs).on('error', () => res.destroy()).pipe(res) // a synced folder can fail a read after the exists check
 }
 

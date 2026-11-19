@@ -106,6 +106,11 @@ body{margin:0}
    - `z-index` on every piece of a design: they reordered the layers. Keep the order. A piece they add after that carries the next `z-index`.
    - A `<font style="…">` around some words in a text block: they restyled just those words. Keep it (you may turn it into a classed span if the look stays identical).
    - An element with a long inline style (`font-family`, `font-size`, `color`, `letter-spacing`…) and a class this file has no rule for: they pasted it from another design, and the board wrote its look inline. Fold that into a class if you like; the result must look the same.
+   - A piece that vanished from your file: they dragged it into another frame or onto the bare board. `studio changes` says where it went ("moved to …"). Do not put it back.
+   - A piece with a long inline style that appeared in your file: they dragged it in from another frame or from the board. Its image links were rewritten to work from your file.
+   - `width` / `height` inline on the `.ad` itself: they resized the frame.
+   - Files under `loose/`: single pieces they parked on the board outside any frame (reference pictures, spare copy). They are their scratch space. Read them if they points at one, but do not tidy, restyle or delete them.
+   - A design may have a board title that differs from its folder name (`studio designs` shows both). `studio` commands accept either.
 3. **Edit in place.** Change the lines you need. Never regenerate the file from a template and drop their inline styles. If you restructure, carry each tweak across.
 4. If you move a tweak from inline into a class, the rendered result must stay identical. Check with `studio shot`.
 5. Reply to each comment you act on: `studio reply <board> <id> "what changed" --resolve`.

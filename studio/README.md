@@ -55,8 +55,23 @@ Rules for agents:
 - Look at your work with `studio shot` before saying it is ready.
 - An ad's artboard is its `.ad` element (or any element with `data-artboard`). Files without one are treated as pages and render full length.
 
+## Planning on the board
+
+A board is also where the task is planned. Next to the design frames, you lay out **planning objects**. They are stored in the board's `state.json` and never touch an HTML file:
+- **Step boxes** (B): the + on each side adds the next step, joined by an arrow. Typing goes straight into a new box.
+- **Sections** (S): named areas. Dragging a section moves everything in it, design frames included.
+- **Pictures and videos**: drop them on the bare board, or use the media button. **+ Note** ties a note to one, and the note moves with it. A picture dragged onto an ad goes into its HTML, and its notes become comments on that ad.
+- **Links**: paste a URL on the board.
+
+`studio plan <board>` prints all of it in plain language: sections, steps in arrow order (with branches), notes and the file path of every picture, video and design, plus open comments. The same text is kept in `<state dir>/boards/<board>/plan.md`. **Read it before planning a task that has a board.** Agents add objects with `POST /api/items {board, put, remove, by: "agent"}`, though the plan normally belongs to the user.
+
+When the board belongs to a card on the work board, a **Claude** panel at top right shows that card's live session and can send it a follow-up. It uses the work board server, set with `WORKBOARD_URL` (default `http://127.0.0.1:4477`).
+
 ## What you can do in the editor
 
+- **Draw a frame anywhere (F).** Drag on the board for any size, or click for a 4:5 ad. It is a new HTML file with an empty `.ad`. Double-click a frame's label to call it anything: that is its title on the board, the file keeps its own name. Drag the right or bottom edge of a selected frame to resize it.
+- **Pieces can sit on the bare board.** Drop or paste a picture outside the frames, or use the text and box tools there. Each one is a small file of its own under `loose/`.
+- **Drag pieces between frames and the board.** Drag a piece past the edge of its frame and let go on another frame or on the board: it moves there with its look written inline. Drag a loose piece onto a frame to put it in. One ⌘Z takes the whole move back.
 - **Click a frame to select it, drag to move it.** Click again to reach inside. ⌫ on a selected frame deletes the design file (confirmed first, ⌘Z restores it).
 - Select any element (⌘-click for the exact one, Esc for its parent), drag it with snapping, resize it, nudge with arrows.
 - A hairline (a rule, a divider, a dotted line) takes the click from a few pixels away, so it does not have to be hit exactly. Whatever sits in front of it still wins.

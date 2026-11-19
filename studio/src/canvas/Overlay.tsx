@@ -1,15 +1,21 @@
-import { boxOf, elOf, isPage } from '../dom'
+import { boxOf, elOf, isPage, rawBox } from '../dom'
+import { rename } from '../commands'
 import { commentOp } from '../net'
 import { set, useStore } from '../store'
+import type { Design } from '../../shared/types'
 import type { Comment } from '../../shared/types'
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
 export function shortName(id: string): string {
+  if (id.startsWith('loose/')) return id.slice(6).replace(/-\d+\.html$/i, '')
   const m = id.match(/([^/]+)\/index(-9x16)?\.html$/i)
   if (m) return m[1] + (m[2] ? ' · 9:16' : '')
   return id.replace(/\.html$/i, '').split('/').slice(-2).join('/')
 }
+
+/** What a design is called on the board: the name they gave it, else its file name. */
+export const nameOf = (d: Design | undefined, id: string) => d?.title || shortName(id)
 
 function Pin({ c, index }: { c: Comment; index: number }) {
   const d = useStore((s) => s.designs[c.design])
@@ -48,6 +54,8 @@ export function Overlay() {
   const editing = useStore((s) => s.editing)
   const tool = useStore((s) => s.tool)
   const comments = useStore((s) => s.comments)
+  const renaming = useStore((s) => s.renaming)
+  const drop = useStore((s) => s.drop)
   useStore((s) => s.tick)
   const z = view.z
   const sx = (x: number) => x * z + view.x
@@ -77,12 +85,23 @@ export function Overlay() {
         const active = sel.design === id || hover?.design === id
         return (
           <div key={id}>
-            <div className={`frame-label${active ? ' active' : ''}`} data-label={id} style={{ left: sx(d.x), top: sy(d.y) - 22, maxWidth: Math.max(70, d.w * z) }}>{shortName(id)}{d.dirty ? ' •' : ''}</div>
+            {renaming === id
+              ? <input className="frame-label editing" autoFocus defaultValue={nameOf(d, id)} style={{ left: sx(d.x), top: sy(d.y) - 24 }}
+                  onFocus={(e) => e.currentTarget.select()} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') { e.currentTarget.value = nameOf(d, id); e.currentTarget.blur() } }}
+                  onBlur={(e) => rename(id, e.currentTarget.value)} />
+              : (!d.loose || sel.design === id) && <div className={`frame-label${active ? ' active' : ''}`} data-label={id} title="Drag to move. Double-click to rename." style={{ left: sx(d.x), top: sy(d.y) - 22, maxWidth: Math.max(70, d.w * z) }}>{nameOf(d, id)}{d.dirty && !d.loose ? ' •' : ''}</div>}
             {hover?.design === id && sel.design !== id && <div className="hover-outline" style={box(d)} />}
-            {sel.design === id && !sel.sids.length && <div className="design-outline" style={box(d)} />}
+            {drop?.to === id && <div className="drop-outline" style={box(d)} />}
+            {sel.design === id && !sel.sids.length && (
+              <div className="design-outline" style={box(d)}>
+                {!editing && tool === 'move' && !isPage(id) && (d.loose ? HANDLES.map((h) => <div key={h} className={`handle h-${h}`} data-handle={h} />) : ['e', 's', 'se'].map((h) => <div key={h} className={`handle h-${h}`} data-fhandle={h} />))}
+              </div>
+            )}
           </div>
         )
       })}
+      {drop && sel.design && els.map((el, i) => { const b = rawBox(sel.design!, el); return el.tagName === 'IMG' ? <img key={i} className="ghost" src={(el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src} style={box(b)} alt="" /> : <div key={i} className="ghost" style={box(b)} /> })}
       {hoverEl && <div className="hover-outline" style={box(clip(boxOf(hover!.design, hoverEl), hover!.design))} />}
       {els.length > 1 && els.map((el, i) => <div key={i} className="sel-outline" style={box(clip(boxOf(sel.design!, el), sel.design!))} />)}
       {single && (

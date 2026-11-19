@@ -387,7 +387,7 @@ function cardHTML(c){
   const n = c.steps?.length||0, d = (c.steps||[]).filter(s=>s.done).length;
   return `<div class="card ${c.status==="Done"?"done":""}" draggable="true" data-id="${c.id}">
     <div class="t">${esc(c.title)||''}</div>
-    <div class="meta">${tag(c.brand)}${agents[c.id]?`<span class="adot ${agents[c.id].state}" title="${agents[c.id].state==="waiting"?"Claude is waiting on you":"Claude is working"}"></span>`:""}${hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
+    <div class="meta">${tag(c.brand)}${agents[c.id]?`<span class="adot ${agents[c.id].state}" title="${agents[c.id].state==="waiting"?"Claude is waiting on you":"Claude is working"}"></span>`:""}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
   </div>`;
 }
 
@@ -546,7 +546,7 @@ function renderPeek(){
   if(p.dataset.id === c.id && p.contains(document.activeElement)) { refreshPeekProps(c); return; }
   p.dataset.id = c.id;
   p.innerHTML = `
-    <div class="peek-top"><button class="iconbtn" id="pclose">»</button><button class="iconbtn cvbtn" id="pcanvas">Canvas ↗</button></div>
+    <div class="peek-top"><button class="iconbtn" id="pclose">»</button><button class="iconbtn cvbtn" id="pcanvas" title="Plan and design this task in Studio">Studio ↗</button></div>
     <div class="peek-body">
       <div class="ptitle" contenteditable="true" spellcheck="false">${esc(c.title)}</div>
       <div class="prop"><div class="k">Status</div><div class="v" id="vstatus"></div></div>
@@ -566,8 +566,17 @@ function renderPeek(){
   mountAgent(c);
   p.querySelector("#pclose").onclick = closePeek;
   p.querySelector("#pcanvas").onclick = async () => {
+    // one Studio board per card: made on first click, then the same board every time (in its own tab)
+    const tab = window.open("", "studio-" + c.id);
     clearTimeout(saveT); if(dirty) await push();
-    location.href = "/canvas/" + encodeURIComponent(c.id);
+    try{
+      const r = await fetch("/api/studio/" + encodeURIComponent(c.id), {method:"POST"});
+      const j = await r.json();
+      if(!r.ok) throw new Error(j.error || r.status);
+      c.studio = j.board;            // the server stored it too; keep this tab in step so a later save can't drop it
+      if(tab) tab.location.href = j.url; else location.href = j.url;
+      renderLists();
+    }catch(e){ tab?.close(); alert("Couldn't open Studio: " + e.message); }
   };
   p.querySelector("#pdel").onclick = () => { if(confirm("Delete this card?")){ board.cards = board.cards.filter(x=>x!==c); save(); closePeek(); } };
   p.querySelector("#addstep").onclick = () => { c.steps.push({text:"",done:false}); save(); renderSteps(c, true); renderLists(); };
