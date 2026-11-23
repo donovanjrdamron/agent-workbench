@@ -8,3 +8,6 @@ board/*.bak
 board/__pycache__/
 *.pre-*.bak
 .DS_Store
+board/kept.json
+board/permanents.json
+board/studio

@@ -5,6 +5,9 @@ import type { Item } from '../../shared/types'
 import { designAt } from '../dom'
 import { addNext, addNote, boxFor, commitMove, dragGroup, dropIntoDesign, selectItems, startEdit } from '../items'
 import { itemOp } from '../net'
+import { AiButtons } from '../panels/AiDialog'
+import { useAi } from '../ai'
+import { startCrop } from './Crop'
 import { get, set, useStore, type Box } from '../store'
 
 type Pt = { x: number; y: number }
@@ -16,7 +19,13 @@ function toWorld(e: { clientX: number; clientY: number }): Pt {
 const free = () => { const s = get(); return s.tool === 'move' && !s.space }
 
 /** Press on an item: select it, and drag it (with what it carries) if the pointer moves. */
-function press(e: React.PointerEvent, it: Item, opts: { resize?: boolean } = {}) {
+type Corner = 'nw' | 'ne' | 'se' | 'sw'
+const CORNERS: Corner[] = ['nw', 'ne', 'se', 'sw']
+const RAD = Math.PI / 180
+const turnable = (it: Item) => it.kind !== 'arrow' && it.kind !== 'section'
+/** Press on an item: select it, and drag it (with what it carries) if the pointer moves. A press on a corner grip
+ * resizes it from that corner (the opposite one stays put, also when it is turned); just outside a corner turns it. */
+function press(e: React.PointerEvent, it: Item, opts: { resize?: Corner; rotate?: boolean } = {}) {
   if (!free() || e.button !== 0) return
   e.stopPropagation()
   e.preventDefault()
@@ -29,8 +38,8 @@ function press(e: React.PointerEvent, it: Item, opts: { resize?: boolean } = {})
   if (it.kind === 'arrow') return
   const p0 = toWorld(e)
   const sx = e.clientX, sy = e.clientY
-  const g = opts.resize ? { items: [it.id], designs: [] } : dragGroup(ids.filter((i) => get().items[i]?.kind !== 'arrow'))
-  const start: Record<string, Box> = {}
+  const g = opts.resize || opts.rotate ? { items: [it.id], designs: [] } : dragGroup(ids.filter((i) => get().items[i]?.kind !== 'arrow'))
+  const start: Record<string, Item> = {}
   for (const id of g.items) start[id] = { ...get().items[id] }
   const from: Record<string, Pt> = {}
   for (const id of g.designs) from[id] = { x: get().designs[id].x, y: get().designs[id].y }
@@ -41,11 +50,24 @@ function press(e: React.PointerEvent, it: Item, opts: { resize?: boolean } = {})
     const p = toWorld(ev), dx = Math.round(p.x - p0.x), dy = Math.round(p.y - p0.y)
     const cur = get()
     const items = { ...cur.items }
-    if (opts.resize) {
-      const b = start[it.id]
-      const keep = it.kind === 'image' || it.kind === 'video'
-      const w = Math.max(80, b.w + dx), h = keep ? Math.round((w * b.h) / b.w) : Math.max(50, b.h + dy)
-      items[it.id] = { ...items[it.id], w, h }
+    if (opts.rotate) {
+      const b = start[it.id], cx = b.x + b.w / 2, cy = b.y + b.h / 2
+      let a = (b.rot || 0) + (Math.atan2(p.y - cy, p.x - cx) - Math.atan2(p0.y - cy, p0.x - cx)) / RAD
+      a = ev.shiftKey ? Math.round(a / 15) * 15 : Math.round(a)
+      a = ((a % 360) + 540) % 360 - 180
+      items[it.id] = { ...items[it.id], rot: a || undefined }
+    } else if (opts.resize) {
+      const b = start[it.id], r = (b.rot || 0) * RAD, cos = Math.cos(r), sin = Math.sin(r)
+      const sx = opts.resize.includes('e') ? 1 : -1, sy = opts.resize.includes('s') ? 1 : -1
+      const rx = p.x - p0.x, ry = p.y - p0.y
+      const lx = rx * cos + ry * sin, ly = -rx * sin + ry * cos // the drag, measured along the item's own sides
+      const keep = it.kind === 'image' || it.kind === 'video' || ev.shiftKey
+      let w = Math.max(80, b.w + sx * lx), h = Math.max(50, b.h + sy * ly)
+      if (keep) { const k = Math.max(w / b.w, h / b.h); w = Math.max(80, b.w * k); h = (w * b.h) / b.w }
+      w = Math.round(w); h = Math.round(h)
+      const ex = (sx * (w - b.w)) / 2, ey = (sy * (h - b.h)) / 2 // the middle moves half the growth, turned with the item
+      const mx = b.x + b.w / 2 + ex * cos - ey * sin, my = b.y + b.h / 2 + ex * sin + ey * cos
+      items[it.id] = { ...items[it.id], x: Math.round(mx - w / 2), y: Math.round(my - h / 2), w, h }
     } else {
       for (const id of g.items) if (items[id]) items[id] = { ...items[id], x: start[id].x + dx, y: start[id].y + dy }
     }
@@ -58,7 +80,7 @@ function press(e: React.PointerEvent, it: Item, opts: { resize?: boolean } = {})
     window.removeEventListener('pointerup', up)
     if (!moved) { if (!e.shiftKey && ids.length > 1) selectItems([it.id]); return } // a plain click in a group picks that one
     const p = toWorld(ev)
-    const over = it.kind === 'image' && !opts.resize && g.items.every((i) => i === it.id || get().items[i]?.attach === it.id) ? designAt(p) : null
+    const over = it.kind === 'image' && !opts.resize && !opts.rotate && g.items.every((i) => i === it.id || get().items[i]?.attach === it.id) ? designAt(p) : null
     if (over) { dropIntoDesign(it.id, over, p).then((ok) => { if (!ok) commitMove(g.items, g.designs, from) }); return }
     commitMove(g.items, g.designs, from)
   }
@@ -144,17 +166,19 @@ function ItemView({ it, on, edit, seed, board, z }: { it: Item; on: boolean; edi
     const ro = new ResizeObserver(fit); ro.observe(el)
     return () => ro.disconnect()
   }, [it.id, grows])
-  const style = { left: it.x, top: it.y, width: it.w, height: grows ? undefined : it.h, minHeight: grows ? it.h : undefined, outlineWidth: on ? 2 / z : 0, ...(it.fs ? { '--fs': `${it.fs}px`, padding: `${Math.round(it.fs * 0.45)}px ${Math.round(it.fs * 0.6)}px` } : {}) } as React.CSSProperties
+  const flip = it.fx || it.fy ? `${it.fx ? -1 : 1} ${it.fy ? -1 : 1}` : undefined
+  const style = { left: it.x, top: it.y, width: it.w, rotate: it.rot ? `${it.rot}deg` : undefined, scale: flip, height: grows ? undefined : it.h, minHeight: grows ? it.h : undefined, outlineWidth: on ? 2 / z : 0, ...(it.fs ? { '--fs': `${it.fs}px`, padding: `${Math.round(it.fs * 0.45)}px ${Math.round(it.fs * 0.6)}px` } : {}) } as React.CSSProperties
   const media = `/b/${encodeURIComponent(board)}/${(it.src || '').split('/').map(encodeURIComponent).join('/')}`
   const dbl = (e: React.MouseEvent) => {
     if (!free()) return
     e.stopPropagation()
     if (it.kind === 'box' || it.kind === 'text') startEdit(it.id)
     else if (it.kind === 'link' && it.url) window.open(it.url, '_blank', 'noopener')
+    else if (it.kind === 'image') startCrop({ kind: 'item', id: it.id })
   }
   if (it.kind === 'section') {
     return (
-      <div className={`it it-section${on ? ' on' : ''}`} style={style} onPointerDown={(e) => press(e, it)}>
+      <div data-iid={it.id} className={`it it-section${on ? ' on' : ''}`} style={style} onPointerDown={(e) => press(e, it)}>
         <div className="it-section-title" style={{ fontSize: 13 / z, top: -22 / z }} onPointerDown={(e) => press(e, it)} onDoubleClick={(e) => { e.stopPropagation(); startEdit(it.id) }}>
           {edit ? <Editor it={it} /> : it.text || 'Section'}
         </div>
@@ -162,7 +186,7 @@ function ItemView({ it, on, edit, seed, board, z }: { it: Item; on: boolean; edi
     )
   }
   return (
-    <div ref={box} className={`it it-${it.kind === 'text' ? 'label' : it.kind}${it.color ? ` c-${it.color}` : ''}${on ? ' on' : ''}${!it.text && it.kind === 'box' && !edit ? ' empty' : ''}`} style={style}
+    <div ref={box} data-iid={it.id} className={`it it-${it.kind === 'text' ? 'label' : it.kind}${it.color ? ` c-${it.color}` : ''}${on ? ' on' : ''}${!it.text && it.kind === 'box' && !edit ? ' empty' : ''}`} style={style}
       onPointerDown={(e) => { if (it.kind === 'video' && on && (e.target as HTMLElement).tagName === 'VIDEO') { e.stopPropagation(); return } press(e, it) }}
       onDoubleClick={dbl}>
       {(it.kind === 'box' || it.kind === 'text') && (edit ? <Editor it={it} seed={seed} /> : <div className="it-text">{it.text}</div>)}
@@ -192,12 +216,25 @@ function Chrome({ it, z, editing }: { it: Item; z: number; editing: boolean }) {
         <button key={d} className="it-plus" title="Add the next step" style={{ left: at[d].x - btn / 2, top: at[d].y - btn / 2, width: btn, height: btn, fontSize: 20 / z }}
           onPointerDown={(e) => { e.stopPropagation(); e.preventDefault() }} onClick={(e) => { e.stopPropagation(); addNext(it.id, d as 'up') }}>+</button>
       ))}
+      {it.kind === 'image' && !editing && (
+        <div className="it-ai" style={{ left: it.x, top: it.y - 12 / z, transform: `translateY(-100%) scale(${1 / z})` }}><AiButtons target={{ kind: 'item', id: it.id }} compact /></div>
+      )}
       {(it.kind === 'image' || it.kind === 'video') && (
         <button className="it-note" style={{ left: it.x, top: it.y + it.h + 14 / z, fontSize: 13 / z, padding: `${5 / z}px ${10 / z}px`, borderRadius: 6 / z }}
           onPointerDown={(e) => { e.stopPropagation(); e.preventDefault() }} onClick={(e) => { e.stopPropagation(); addNote(it.id) }}>+ Note</button>
       )}
       {it.kind !== 'arrow' && !editing && (
-        <div className="it-grip" style={{ left: it.x + it.w - 7 / z, top: it.y + it.h - 7 / z, width: 14 / z, height: 14 / z, borderWidth: 2 / z }} onPointerDown={(e) => press(e, it, { resize: true })} />
+        <div className="it-frame" style={{ left: it.x, top: it.y, width: it.w, height: it.h, rotate: it.rot ? `${it.rot}deg` : undefined }}>
+          {turnable(it) && CORNERS.map((c) => (
+            <div key={`r${c}`} className="it-rot" title="Drag to rotate (Shift: 15° steps)"
+              style={{ width: 26 / z, height: 26 / z, left: c.includes('w') ? -26 / z : it.w, top: c.includes('n') ? -26 / z : it.h }}
+              onPointerDown={(e) => press(e, it, { rotate: true })} />
+          ))}
+          {CORNERS.map((c) => (
+            <div key={c} className={`it-grip g-${c}`} style={{ left: (c.includes('w') ? 0 : it.w) - 7 / z, top: (c.includes('n') ? 0 : it.h) - 7 / z, width: 14 / z, height: 14 / z, borderWidth: 2 / z }}
+              onPointerDown={(e) => press(e, it, { resize: c })} />
+          ))}
+        </div>
       )}
     </>
   )
@@ -222,7 +259,9 @@ export function ItemsTop() {
   const all = Object.values(items)
   const arrows = all.filter((i) => i.kind === 'arrow')
   const rest = all.filter((i) => i.kind !== 'arrow' && i.kind !== 'section')
-  const one = isel.length === 1 ? items[isel[0]] : null
+  // while a picture is being expanded only its expand handles show: the resize grips would sit right on top of them
+  const expanding = useAi((s) => !!s.expand || !!s.crop)
+  const one = isel.length === 1 && !expanding ? items[isel[0]] : null
   // a click on the bare canvas ends typing (the canvas blurs whatever has focus)
   useEffect(() => { if (iedit && !items[iedit.id]) set({ iedit: null }) }, [iedit, items])
   return (

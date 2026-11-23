@@ -9,12 +9,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "board.json")
 CANVASES = os.path.join(HERE, "canvases")
 MEDIA = os.path.join(HERE, "media")
+KEPT = os.path.join(HERE, "kept.json")   # Studio boards kept for good (ad creatives, libraries): listed first, reused by new cards
+DROPS = os.path.expanduser(os.environ.get("BOARD_DROPS", "~/.claude/drops"))   # files dropped into an agent chat
 ASSETS = os.path.join(HERE, "canvas-assets")
 WAIT_DIR = os.path.expanduser("~/.claude/waiting")
 PORT = int(os.environ.get("BOARD_PORT", 4477))
 # Studio: each card can have its own Studio board (planning + designs in one place)
 STUDIO_URL = os.environ.get("STUDIO_URL", "http://127.0.0.1:4517")
-STUDIO_CLI = os.environ.get("STUDIO_CLI") or shutil.which("studio") or os.path.expanduser("~/agent-workbench/studio/bin/studio")
+STUDIO_CLI = os.environ.get("STUDIO_CLI") or os.path.join(HERE, "studio")   # install.sh links it to the repo's studio/bin/studio
 STUDIO_HOME = os.environ.get("STUDIO_HOME", os.path.expanduser("~/Studio"))
 CORS_OK = {STUDIO_URL, STUDIO_URL.replace("127.0.0.1", "localhost")}
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -38,6 +40,22 @@ def mtime_version(path):
     except OSError: return "0"
 
 def version(): return mtime_version(DATA)
+
+def kept_boards():
+    try: return [b for b in json.load(open(KEPT)) if isinstance(b, str)]
+    except Exception: return []
+
+def linked_cards(board):
+    """Every card working on a Studio board that is not finished, newest first, with its Claude session."""
+    try: cards = json.load(open(DATA))["cards"]
+    except Exception: cards = []
+    out = []
+    for c in cards:
+        if not board or c.get("studio") != board or c.get("status") == "Done": continue
+        out.append({"id": c["id"], "title": c["title"], "brand": c.get("brand", ""), "status": c.get("status"),
+                    "state": card_state(c), "created": c.get("created", 0)})
+    return sorted(out, key=lambda c: -(c["created"] or 0))
+
 
 def alive(pid):
     try:
@@ -69,7 +87,7 @@ def card_info(cid):
 
 # ---------- linked Claude sessions ----------
 SESS_DIR = os.path.join(WAIT_DIR, ".sessions")
-ORCA = "/usr/local/bin/orca"
+ORCA = os.environ.get("ORCA") or shutil.which("orca") or "/usr/local/bin/orca"
 
 def session_rec(pid):
     try: return json.load(open(os.path.join(SESS_DIR, f"{pid}.json")))
@@ -134,14 +152,92 @@ def transcript_info(path, limit=14):
         else: rev.append({"role": role, "text": text[:30000]})
     return list(reversed(rev)), custom or title
 
+def card_agents(card):
+    """Every session that has worked on this card (card start/new links one each time), oldest first."""
+    out, seen = [], set()
+    for a in (card.get("agents") or []) + ([card["agent"]] if card.get("agent") else []):
+        if a.get("pid") and a["pid"] not in seen: seen.add(a["pid"]); out.append(a)
+    return out
+
+def live_by_sid(sid):
+    """A running Claude process on this session (it was resumed after it ended, so its pid is new)."""
+    if not sid: return None
+    for f in glob.glob(os.path.join(SESS_DIR, "*.json")):
+        try: r = json.load(open(f))
+        except Exception: continue
+        if r.get("sid") == sid and alive(r.get("pid")) and _is_claude(r.get("pid")): return r
+    return None
+
+def session_state(a):
+    """Live state of one linked session. A pid reused by another session counts as ended; a resumed one is found by its id."""
+    pid = a.get("pid"); rec = session_rec(pid)
+    if a.get("sid") and rec.get("sid") and rec["sid"] != a["sid"]: rec = {}
+    sid = a.get("sid") or rec.get("sid") or ""
+    if not rec or not alive(pid) or not _is_claude(pid):
+        again = live_by_sid(sid)
+        if again: rec = again
+        else:
+            return {"state": "ended", "rec": rec, "agent": a, "sid": sid, "transcript": rec.get("transcript") or a.get("transcript") or ""}
+    return {"state": rec.get("state", "working"), "rec": rec, "agent": a, "sid": sid, "transcript": rec.get("transcript") or a.get("transcript") or ""}
+
+def transcript_cwd(path):
+    """The folder a session ran in (its transcript says so near the top)."""
+    try:
+        with open(path, "rb") as f:
+            for _ in range(40):
+                ln = f.readline()
+                if not ln: break
+                m = re.search(rb'"cwd":"((?:[^"\\]|\\.)*)"', ln)
+                if m: return json.loads(b'"' + m.group(1) + b'"')
+    except Exception: pass
+    return ""
+
+_titles = {}
+def session_title(path):
+    """The session's title (its /rename, else Claude's own), cached until the transcript grows."""
+    try: st = os.stat(path); key = (st.st_size, st.st_mtime_ns)
+    except OSError: return ""
+    hit = _titles.get(path)
+    if hit and hit[0] == key: return hit[1]
+    title = transcript_info(path, limit=0)[1]
+    _titles[path] = (key, title)
+    return title
+
+RANK = {"working": 0, "waiting": 0, "ended": 1}
+def card_sessions(c):
+    """Sessions on a card for the picker: live ones first, then newest."""
+    rows = []
+    for a in card_agents(c):
+        st = session_state(a)
+        rows.append({"pid": str(a["pid"]), "state": st["state"], "title": session_title(st["transcript"]) if st["transcript"] else "",
+                     "linked": a.get("linked", 0), "resumable": bool(st["sid"] and st["transcript"]), "st": st})
+    rows.sort(key=lambda r: (RANK.get(r["state"], 1), -(r["linked"] or 0)))
+    return rows
+
+def remember_transcripts(c):
+    """Copy each live session's transcript path onto the card, so its chat stays readable after it ends."""
+    todo = {}
+    for a in card_agents(c):
+        if a.get("transcript"): continue
+        rec = session_rec(a["pid"])
+        if rec.get("transcript") and (not a.get("sid") or a["sid"] == rec.get("sid")): todo[str(a["pid"])] = rec
+    if not todo: return
+    def fn(card):
+        for a in (card.get("agents") or []) + ([card["agent"]] if card.get("agent") else []):
+            r = todo.get(str(a.get("pid")))
+            if r: a["transcript"] = r["transcript"]; a.setdefault("sid", r.get("sid", ""))
+    try: update_card(c["id"], fn)
+    except Exception: pass
+
+def card_state(c):
+    """One dot for a card: working beats waiting beats nothing."""
+    states = [session_state(a)["state"] for a in card_agents(c)]
+    return "working" if "working" in states else "waiting" if "waiting" in states else ("ended" if states else None)
+
 def agent_state(card):
-    a = card.get("agent") or {}
-    pid = a.get("pid")
-    if not pid: return None
-    rec = session_rec(pid)
-    if not alive(pid) or not _is_claude(pid):        # closed, or the pid now belongs to something else
-        return {"state": "ended", "rec": rec, "agent": a}
-    return {"state": rec.get("state", "working"), "rec": rec, "agent": a}
+    """The card's most relevant session (kept for older callers)."""
+    rows = card_sessions(card)
+    return rows[0]["st"] if rows else None
 
 def _is_claude(pid):
     import subprocess
@@ -154,6 +250,52 @@ def orca(*args):
                        env={"HOME": os.path.expanduser("~"), "PATH": "/usr/local/bin:/usr/bin:/bin"})
     try: return json.loads(r.stdout)
     except Exception: return {"ok": False, "error": (r.stderr or r.stdout)[:300]}
+
+# ---------- close a finished card's Orca tabs ----------
+def _terminal_busy_elsewhere(term, pid, cid):
+    """True when this terminal/session also belongs to a card that is not Done."""
+    try: cards = json.load(open(DATA))["cards"]
+    except Exception: return True
+    for c in cards:
+        if c["id"] == cid or c.get("status") == "Done": continue
+        for a in card_agents(c):
+            if (term and a.get("terminal") == term) or str(a.get("pid")) == str(pid): return True
+    return False
+
+def _other_live_session(term, a):
+    """A different live Claude session now sits in this terminal (the tab was reused): leave it alone."""
+    try: names = os.listdir(SESS_DIR)
+    except OSError: return False
+    for n in names:
+        try: r = json.load(open(os.path.join(SESS_DIR, n)))
+        except Exception: continue
+        if r.get("terminal") != term or not alive(r.get("pid")) or not _is_claude(r.get("pid")): continue
+        if str(r.get("pid")) != str(a.get("pid")) or (a.get("sid") and r.get("sid") and r["sid"] != a["sid"]): return True
+    return False
+
+def close_done(cid):
+    """A card was marked Done: close the Orca tabs of the sessions linked to it. Only those tabs, never
+    one that also works on another open card or that now holds a different session. A session still
+    working is closed once it goes quiet. Moving the card back out of Done calls it off."""
+    log = lambda m: open(os.path.join(HERE, "server.log"), "a").write(f"close-done {cid}: {m}\n")
+    try:
+        for a in card_agents(card_info(cid)):
+            term = a.get("terminal") or session_rec(a.get("pid")).get("terminal")
+            if not term: continue
+            for _ in range(720):                      # up to an hour for a session to finish its turn
+                if card_info(cid).get("status") != "Done": log("card reopened, nothing closed"); return
+                if session_state(a)["state"] != "working": break
+                time.sleep(5)
+            else: log(f"{term} still working after an hour, left open"); continue
+            if session_state(a)["state"] == "ended" and _other_live_session(term, a): log(f"{term} now holds another session, left open"); continue
+            if _terminal_busy_elsewhere(term, a.get("pid"), cid): log(f"{term} also on another open card, left open"); continue
+            r = orca("terminal", "close", "--terminal", term, "--tab")
+            log(f"{term} closed" if r.get("ok") else f"{term} not closed: {str(r.get('error'))[:160]}")
+    except Exception as e: log(f"error {e}")
+
+def close_done_later(cid):
+    import threading
+    threading.Thread(target=close_done, args=(cid,), daemon=True).start()
 
 # ---------- canvases ----------
 def canvas_path(cid): return os.path.join(CANVASES, f"{cid}.json")
@@ -188,6 +330,16 @@ def write_digest(cid, scene):
 class H(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     def log_message(self, *a): pass
+
+    def query(self, k):
+        from urllib.parse import parse_qs
+        return (parse_qs(self.path.split("?", 1)[1]).get(k) or [""])[0] if "?" in self.path else ""
+
+    def studio_base(self):
+        """Studio as seen from whoever asked: this Mac, or the phone over Tailscale (review mode there)."""
+        host = (self.headers.get("Host") or "").split(":")[0]
+        # any address but this Mac's own (the Tailscale IP or its macbook-pro...ts.net name): the phone
+        return STUDIO_URL if host in ("", "127.0.0.1", "localhost") else f"http://{host}:4517"
 
     def send(self, code, body, ctype="application/json", ver=None, extra=None):
         b = body if isinstance(body, bytes) else body.encode()
@@ -269,18 +421,52 @@ class H(BaseHTTPRequestHandler):
             except Exception: cards = []
             for c in cards:
                 if c.get("status") == "Done": continue
-                st = agent_state(c)
-                if st and st["state"] != "ended":
-                    out[c["id"]] = {"state": st["state"]}
+                st = card_state(c)
+                if st in ("working", "waiting"):
+                    out[c["id"]] = {"state": st}
             return self.send(200, json.dumps(out))
         m = re.match(r"^/api/agent/([^/]+)$", p)
-        if m:
-            cid = unquote(m.group(1))
-            c = card_info(cid); st = agent_state(c) if c else None
-            if not st: return self.send(200, json.dumps({"linked": False}))
-            msgs, title = transcript_info(st["rec"].get("transcript", "")) if st["rec"].get("transcript") else ([], "")
-            return self.send(200, json.dumps({"linked": True, "state": st["state"], "title": title, "messages": msgs,
-                                              "canSend": st["state"] != "ended" and bool(st["agent"].get("terminal"))}))
+        if m:   # one session's conversation (?pid=, else the most relevant) and every session on the card
+            cid = unquote(m.group(1)); c = card_info(cid)
+            rows = card_sessions(c) if c else []
+            if not rows: return self.send(200, json.dumps({"linked": False, "sessions": []}))
+            remember_transcripts(c)
+            want = self.query("pid")
+            row = next((r for r in rows if r["pid"] == want), rows[0])
+            st = row["st"]
+            msgs, title = transcript_info(st["transcript"]) if st["transcript"] else ([], "")
+            return self.send(200, json.dumps({"linked": True, "pid": row["pid"], "state": st["state"], "title": title, "messages": msgs,
+                                              "canSend": st["state"] != "ended" and bool(st["rec"].get("terminal") or st["agent"].get("terminal")),
+                                              "resumable": row["resumable"],
+                                              "sessions": [{k: r[k] for k in ("pid", "state", "title", "linked", "resumable")} for r in rows]}))
+        m = re.match(r"^/api/agent/([^/]+)/commands$", p)
+        if m:   # what "/" can complete to in this session's chat box: built-ins, skills, plugins, the project's own
+            c = card_info(unquote(m.group(1))); rows = card_sessions(c) if c else []
+            want = self.query("pid"); row = next((r for r in rows if r["pid"] == want), rows[0] if rows else None)
+            st = row["st"] if row else None
+            cwd = (st["rec"].get("cwd") or st["agent"].get("cwd") or (transcript_cwd(st["transcript"]) if st["transcript"] else "")) if st else ""
+            return self.send(200, json.dumps({"commands": slash_commands(cwd)}))
+        if p == "/api/studio-sessions":   # every session on every card working on a Studio board, for its chat picker
+            name = self.query("board")
+            try: cards = json.load(open(DATA))["cards"]
+            except Exception: cards = []
+            out = []
+            for c in cards:
+                if not name or c.get("studio") != name: continue
+                for r in card_sessions(c):
+                    out.append({"cid": c["id"], "card": c["title"], "done": c.get("status") == "Done", **{k: r[k] for k in ("pid", "state", "title", "linked", "resumable")}})
+            out.sort(key=lambda r: (RANK.get(r["state"], 1), r["done"], -(r["linked"] or 0)))
+            return self.send(200, json.dumps({"sessions": out}))
+        if p == "/api/studio-boards":   # the work board's Studio tab: pinned boards first, then newest first
+            return self.send(200, json.dumps({"boards": studio_boards(self.studio_base())}))
+        if p == "/api/studio-preview":   # what is on one board, for its tile (asked for only when the tile is on screen)
+            return self.send(200, json.dumps(board_preview(self.query("board"))))
+        if p == "/api/studio-cards":   # every unfinished card on a Studio board (one board, many agents)
+            from urllib.parse import parse_qs
+            name = (parse_qs(self.path.split("?", 1)[1]).get("board") or [""])[0] if "?" in self.path else ""
+            return self.send(200, json.dumps({"cards": linked_cards(name), "kept": name in kept_boards()}))
+        if p == "/api/kept":
+            return self.send(200, json.dumps({"boards": kept_boards()}))
         if p == "/api/studio-card":   # which card a Studio board belongs to
             from urllib.parse import parse_qs
             name = (parse_qs(self.path.split("?", 1)[1]).get("board") or [""])[0] if "?" in self.path else ""
@@ -302,9 +488,9 @@ class H(BaseHTTPRequestHandler):
         if m and SAFE_ID.match(unquote(m.group(1))):
             # the plan moved to the card's Studio board (on this Mac; Studio isn't reachable from the phone)
             c = card_info(unquote(m.group(1)))
-            if c.get("studio") and (self.headers.get("Host") or "").startswith(("127.0.0.1", "localhost")):
+            if c.get("studio"):   # on the phone (Tailscale): Studio's review-only address on the same machine
                 from urllib.parse import quote
-                return self.send(302, b"", "text/plain", extra={"Location": f"{STUDIO_URL}/?board={quote(c['studio'])}"})
+                return self.send(302, b"", "text/plain", extra={"Location": f"{self.studio_base()}/?board={quote(c['studio'])}" + (f"&focus={quote(c['studio_folder'])}" if c.get("studio_folder") else "")})
             return self.send(200, open(os.path.join(HERE, "canvas.html"), "rb").read(), "text/html; charset=utf-8")
         m = re.match(r"^/canvas-assets/(.+)$", p)
         if m:
@@ -345,13 +531,44 @@ class H(BaseHTTPRequestHandler):
         self.send(200, b"")
 
     def do_POST(self):
-        m = re.match(r"^/api/agent/([^/]+)/(send|open)$", self.path)
+        m = re.match(r"^/api/agent/([^/]+)/rename", self.path)
+        if m:   # name a session: the same record Claude Code's /rename writes, so /resume lists it by that name too
+            cid = unquote(m.group(1)); c = card_info(cid); rows = card_sessions(c) if c else []
+            want = self.query("pid"); row = next((r for r in rows if r["pid"] == want), None)
+            try: title = " ".join(str(json.loads(self.body()).get("title", "")).split())[:80]
+            except Exception: title = ""
+            if not row or not title: return self.send(400, json.dumps({"error": "Nothing to rename."}))
+            st = row["st"]
+            if not (st["transcript"] and os.path.exists(st["transcript"])): return self.send(409, json.dumps({"error": "This session's conversation file is gone."}))
+            with open(st["transcript"], "a") as f:
+                f.write(json.dumps({"type": "custom-title", "customTitle": title, "sessionId": st["sid"]}, separators=(",", ":")) + "\n")
+            return self.send(200, json.dumps({"ok": True, "title": title}))
+        m = re.match(r"^/api/agent/([^/]+)/resume", self.path)
+        if m:   # turn an ended session back on: a new Orca tab running `claude --resume <id>` in its own folder
+            cid = unquote(m.group(1)); c = card_info(cid); rows = card_sessions(c) if c else []
+            want = self.query("pid"); row = next((r for r in rows if r["pid"] == want), None)
+            if not row: return self.send(404, json.dumps({"error": "No such session on this task."}))
+            st = row["st"]
+            if st["state"] != "ended": return self.send(200, json.dumps({"ok": True, "already": True}))
+            if not (st["sid"] and st["transcript"]): return self.send(409, json.dumps({"error": "This session can't be resumed (its conversation file is gone)."}))
+            cwd = st["agent"].get("cwd") or st["rec"].get("cwd") or transcript_cwd(st["transcript"]) or os.path.expanduser("~")
+            import shlex
+            title = (row["title"] or c.get("title") or "Claude")[:40]
+            r = orca("terminal", "create", "--worktree", f"path:{cwd}", "--title", title, "--command", f"claude --resume {shlex.quote(st['sid'])}")
+            if not r.get("ok"):   # not one of Orca's folders: open it in the current one and step into the session's folder
+                r = orca("terminal", "create", "--title", title, "--command", f"cd {shlex.quote(cwd)} && claude --resume {shlex.quote(st['sid'])}")
+            err = r.get("error"); err = err.get("message") if isinstance(err, dict) else err
+            return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": f"Orca couldn't open it: {err}" if not r.get("ok") else None}))
+        m = re.match(r"^/api/agent/([^/]+)/(send|open)$", self.path.split("?")[0])   # (?pid= picks the session)
         if m:
             cid, action = unquote(m.group(1)), m.group(2)
-            c = card_info(cid); st = agent_state(c) if c else None
+            c = card_info(cid); rows = card_sessions(c) if c else []
+            want = self.query("pid")
+            row = next((r for r in rows if r["pid"] == want), None) if want else (rows[0] if rows else None)
+            st = row["st"] if row else None
             if not st or st["state"] == "ended":
                 return self.send(409, json.dumps({"error": "That Claude session isn't running anymore."}))
-            term = st["agent"].get("terminal") or st["rec"].get("terminal")
+            term = st["rec"].get("terminal") or st["agent"].get("terminal")
             if not term: return self.send(409, json.dumps({"error": "This session wasn't started inside Orca."}))
             if action == "open":
                 r = orca("terminal", "switch", "--terminal", term)
@@ -360,17 +577,66 @@ class H(BaseHTTPRequestHandler):
             try: text = json.loads(self.body()).get("text", "")
             except Exception: text = ""
             text = " ".join(str(text).split())[:4000]       # one line: a newline would send early
+            if text == "\u001b":                                # the Stop button: Esc interrupts what Claude is doing
+                r = orca("terminal", "send", "--terminal", term, "--text", "\u001b")
+                return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": r.get("error")}))
             if not text: return self.send(400, json.dumps({"error": "empty"}))
             r = orca("terminal", "send", "--terminal", term, "--text", text, "--enter")
             return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": r.get("error")}))
-        m = re.match(r"^/api/studio/([^/]+)$", self.path)
+        m = re.match(r"^/api/studio/([^/]+)$", self.path.split("?")[0])
         if m:   # open this card's Studio board, making it on first use
             cid = unquote(m.group(1))
             if not SAFE_ID.match(cid): return self.send(400, "{}")
-            try: name = ensure_studio(cid)
+            k = self.query("kind") or None
+            try: name, folder = ensure_studio(cid, k if k in ("ads", "email", "web") else None)
             except Exception as e: return self.send(502, json.dumps({"error": str(e)[:300]}))
             from urllib.parse import quote
-            return self.send(200, json.dumps({"board": name, "url": f"{STUDIO_URL}/?board={quote(name)}"}))
+            root = next((b["root"] for b in studio("GET", "/api/boards")[1].get("boards", []) if b["name"] == name), "")
+            return self.send(200, json.dumps({"board": name, "folder": os.path.join(root, folder) if folder else root, "permanent": bool(folder),
+                                              "url": f"{self.studio_base()}/?board={quote(name)}" + (f"&focus={quote(folder)}" if folder else "")}))
+        if self.path == "/api/studio-delete":   # {"board": name}: take a board off Studio. The files in its folder stay.
+            try: name = str(json.loads(self.body()).get("board", ""))[:200]
+            except Exception: return self.send(400, "{}")
+            if not name: return self.send(400, "{}")
+            try:
+                studio_up(); code, r = studio("POST", "/api/boards", {"remove": name})
+            except Exception as e: code, r = 502, {"error": str(e)[:200]}
+            if code != 200: return self.send(502, json.dumps({"error": r.get("error") or "Studio is not answering"}))
+            ks = [b for b in kept_boards() if b != name]
+            tmp = KEPT + ".tmp"; json.dump(ks, open(tmp, "w"), indent=1); os.replace(tmp, KEPT)
+            open(os.path.join(HERE, "server.log"), "a").write(f"studio board removed: {name}\n")
+            return self.send(200, '{"ok":true}')
+        if self.path == "/api/kept":   # {"board": name, "keep": true|false}
+            try: d = json.loads(self.body()); name = str(d.get("board", ""))[:200]
+            except Exception: return self.send(400, "{}")
+            if not name: return self.send(400, "{}")
+            ks = [b for b in kept_boards() if b != name] + ([name] if d.get("keep") else [])
+            tmp = KEPT + ".tmp"; json.dump(ks, open(tmp, "w"), indent=1); os.replace(tmp, KEPT)
+            try: studio("POST", "/api/boards", {"permanent": name, "on": bool(d.get("keep"))})   # a star means permanent
+            except Exception: pass
+            return self.send(200, json.dumps({"boards": ks}))
+        if self.path.split("?")[0] == "/api/drop":
+            # a file dropped or pasted into an agent chat: keep a copy and hand back its full path for the message
+            from urllib.parse import parse_qs, urlparse
+            orig = os.path.basename(unquote((parse_qs(urlparse(self.path).query).get("name") or ["file"])[0])) or "file"
+            stem, ext = os.path.splitext(orig)
+            stem = re.sub(r"[^A-Za-z0-9_-]+", "-", stem).strip("-")[:60] or "file"
+            ext = re.sub(r"[^A-Za-z0-9.]", "", ext)[:12].lower()
+            n = int(self.headers.get("Content-Length", 0))
+            if n > 2 << 30: return self.send(413, json.dumps({"error": "That file is over 2 GB."}))
+            day = os.path.join(DROPS, time.strftime("%Y-%m-%d"))
+            os.makedirs(day, exist_ok=True)
+            tmp = os.path.join(day, f".upload-{time.time_ns()}")
+            h = hashlib.sha1()
+            with open(tmp, "wb") as f:
+                left = n
+                while left > 0:
+                    chunk = self.rfile.read(min(1 << 20, left))
+                    if not chunk: break
+                    f.write(chunk); h.update(chunk); left -= len(chunk)
+            path = os.path.join(day, f"{stem}-{h.hexdigest()[:6]}{ext}")
+            os.replace(tmp, path)
+            return self.send(200, json.dumps({"path": path}))
         if self.path == "/api/media":
             # stream a video upload to disk
             n = int(self.headers.get("Content-Length", 0))
@@ -437,11 +703,16 @@ class H(BaseHTTPRequestHandler):
             fcntl.flock(lk, fcntl.LOCK_EX)
             if self.headers.get("X-Version") != version():
                 return self.send(409, '{"error":"stale"}')
+            try: was = {c["id"]: c.get("status") for c in json.load(open(DATA))["cards"]}
+            except Exception: was = None
             if os.path.exists(DATA):
                 shutil.copy2(DATA, DATA + ".bak"); snapshot()
             tmp = DATA + ".tmp"
             with open(tmp, "wb") as f: f.write(body)
             os.replace(tmp, DATA)
+        if was is not None:      # cards just moved to Done: their Orca tabs close
+            for c in d["cards"]:
+                if c.get("status") == "Done" and was.get(c.get("id"), "Done") != "Done": close_done_later(c["id"])
         self.send(200, '{"ok":true}')
 
 def update_card(cid, fn):
@@ -474,14 +745,67 @@ def studio_up():
         if studio("GET", "/api/health")[0] == 200: return
     except Exception: pass
     # the Studio CLI starts the server when it isn't running
-    subprocess.run([STUDIO_CLI, "boards"], capture_output=True, timeout=60, env={**os.environ, "PATH": "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"})
+    subprocess.run([STUDIO_CLI, "boards"], capture_output=True, timeout=60, env={**os.environ, "PATH": os.environ.get("PATH", "") + ":/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"})
 
-def ensure_studio(cid):
+PERMANENTS = os.path.join(HERE, "permanents.json")   # {brand: {ads|email|web: board}}: one board per brand and kind of design work
+KINDS = [("email", r"\b(e-?mails?|klaviyo|newsletters?|flows?)\b"),
+         ("ads", r"\b(static|statics|ads?|creatives?|placements?|retarget\w*|banners?)\b"),
+         ("web", r"\b(web|website|site|landing|lander|pdps?|product pages?|home ?page|theme|redesign)\b")]
+def kind_of(title):
+    for k, rx in KINDS:
+        if re.search(rx, title or "", re.I): return k
+    return None
+def folder_name(title):
+    return re.sub(r"\s+", " ", re.sub(r"[^\w .()&,-]+", " ", title or "")).strip()[:70].strip() or "Task"
+
+KIND_LABEL = {"ads": "Static Ads", "email": "Emails", "web": "Web"}
+def make_permanent(brand, k, names):
+    """Create the brand's permanent board for this kind of design work (<Brand> Static Ads/Emails/Web), star it
+    and remember it in permanents.json. Returns its name, or None if Studio refused."""
+    name = f"{brand} {KIND_LABEL[k]}"
+    if name not in names:
+        root = os.path.join(STUDIO_HOME, re.sub(r"[^\w .-]+", " ", brand).strip() or "General", KIND_LABEL[k])
+        os.makedirs(root, exist_ok=True)
+        code, r = studio("POST", "/api/boards", {"name": name, "root": root})
+        if code != 200: return None
+    studio("POST", "/api/boards", {"permanent": name, "on": True})
+    try: perm = json.load(open(PERMANENTS))
+    except Exception: perm = {}
+    perm.setdefault(brand, {})[k] = name
+    tmp = PERMANENTS + ".tmp"; json.dump(perm, open(tmp, "w"), indent=1); os.replace(tmp, PERMANENTS)
+    try: kept = json.load(open(KEPT))
+    except Exception: kept = []
+    if name not in kept:
+        kept.append(name); tmp = KEPT + ".tmp"; json.dump(kept, open(tmp, "w"), indent=1); os.replace(tmp, KEPT)
+    reg = studio("GET", "/api/boards")[1].get("boards", [])
+    names.clear(); names.update({b["name"]: b for b in reg})
+    return name if name in names else None
+
+def ensure_studio(cid, kind=None):
+    """The card's Studio board. Design work for a brand (ads, emails, web) goes on that brand's permanent board,
+    in its own folder (and section); anything else gets a board of its own. Returns (board, folder or None)."""
     c = card_info(cid)
     if not c: raise KeyError(f"no card {cid}")
     studio_up()
-    names = {b["name"]: b for b in studio("GET", "/api/boards")[1].get("boards", [])}
-    if c.get("studio") in names: return c["studio"]
+    reg = studio("GET", "/api/boards")[1].get("boards", [])
+    names = {b["name"]: b for b in reg}
+    try: perm = json.load(open(PERMANENTS))
+    except Exception: perm = {}
+    target = c.get("studio") if c.get("studio") in names else None
+    k = None
+    if not target:
+        k = kind or kind_of(c.get("title", ""))
+        target = (perm.get(c.get("brand") or "") or {}).get(k) if k else None
+        if target not in names: target = None
+    if not target and k and (c.get("brand") or "").strip():
+        target = make_permanent(c["brand"].strip(), k, names)   # first design task of this kind for the brand
+    if target and names[target].get("permanent"):
+        folder = c.get("studio_folder") or folder_name(c["title"])
+        os.makedirs(os.path.join(names[target]["root"], folder), exist_ok=True)
+        if c.get("studio") != target or c.get("studio_folder") != folder:
+            update_card(cid, lambda card: card.update({"studio": target, "studio_folder": folder}))
+        return target, folder
+    if c.get("studio") in names: return c["studio"], None
     base = re.sub(r"[^\w .()&,-]+", " ", c["title"]).strip()[:70].strip() or "Board"
     brand = re.sub(r"[^\w .-]+", " ", c.get("brand") or "General").strip() or "General"
     name, n = base, 2
@@ -491,7 +815,140 @@ def ensure_studio(cid):
     code, r = studio("POST", "/api/boards", {"name": name, "root": folder})
     if code != 200: raise RuntimeError(r.get("error") or f"Studio said {code}")
     update_card(cid, lambda card: card.__setitem__("studio", name))
-    return name
+    return name, None
+
+# ---------- slash commands for the chat composers ----------
+BUILTIN_COMMANDS = [
+    ("compact", "Summarize the conversation so far to free up context"), ("clear", "Start over with an empty conversation"),
+    ("context", "Show how full the context window is"), ("cost", "Show what this session has cost"),
+    ("model", "Switch the model"), ("rename", "Name this session"), ("resume", "Resume another session"),
+    ("review", "Review a pull request"), ("init", "Write a CLAUDE.md for this project"), ("memory", "Edit memory files"),
+    ("status", "Show account and session status"), ("usage", "Show plan usage limits"), ("config", "Open settings"),
+    ("permissions", "View or change tool permissions"), ("agents", "Manage subagents"), ("mcp", "Manage MCP servers"),
+    ("hooks", "Manage hooks"), ("add-dir", "Add another working folder"), ("export", "Export the conversation"),
+    ("todos", "Show the current todo list"), ("plan", "Switch to plan mode"), ("fast", "Toggle fast mode"),
+    ("help", "List commands"), ("doctor", "Check the Claude Code install"), ("release-notes", "What's new"),
+]
+def _front(path):
+    """name and description from a skill/command file's frontmatter (first lines)."""
+    try: head = open(path, errors="ignore").read(4000)
+    except OSError: return {}
+    m = re.match(r"^---\s*\n(.*?)\n---", head, re.S)
+    out = {}
+    if m:
+        for k in ("name", "description"):
+            mm = re.search(rf"^{k}:[ \t]*(.*)$((?:\n[ \t]+.*)*)", m.group(1), re.M)
+            if not mm: continue
+            v = mm.group(1).strip()
+            if v in ("", ">", ">-", "|", "|-"): v = " ".join(l.strip() for l in mm.group(2).splitlines() if l.strip())   # a folded block
+            out[k] = v.strip('"\'')
+    if "description" not in out:   # a plain command file: its first line of text
+        body = head[m.end():] if m else head
+        line = next((l.strip("# ").strip() for l in body.splitlines() if l.strip()), "")
+        if line: out["description"] = line
+    return out
+def _scan_cmds(base, prefix=""):
+    out = []
+    for f in glob.glob(os.path.join(base, "skills", "*", "SKILL.md")) + glob.glob(os.path.join(base, "skills", "*", "*", "SKILL.md")):
+        fm = _front(f); n = fm.get("name") or os.path.basename(os.path.dirname(f))
+        out.append((prefix + n, fm.get("description", "")))
+    for f in glob.glob(os.path.join(base, "commands", "*.md")):
+        fm = _front(f); out.append((prefix + os.path.splitext(os.path.basename(f))[0], fm.get("description", "")))
+    return out
+_cmd_cache = {}
+def slash_commands(cwd):
+    hit = _cmd_cache.get(cwd)
+    if hit and time.time() - hit[0] < 60: return hit[1]
+    home = os.path.expanduser("~/.claude")
+    found = [(n, d, "built-in") for n, d in BUILTIN_COMMANDS]
+    found += [(n, d, "skill") for n, d in _scan_cmds(home)]
+    if cwd: found += [(n, d, "project") for n, d in _scan_cmds(os.path.join(cwd, ".claude"))]
+    try: inst = json.load(open(os.path.join(home, "plugins", "installed_plugins.json"))).get("plugins", {})
+    except Exception: inst = {}
+    for key, entries in inst.items():
+        plug = key.split("@")[0]
+        for e in entries:
+            if e.get("scope") == "local" and not (cwd and (cwd + "/").startswith(e.get("projectPath", "") + "/")): continue
+            found += [(n, d, "plugin") for n, d in _scan_cmds(e.get("installPath", ""), plug + ":")]
+    for pdir in glob.glob(os.path.join(home, "plugins", "synced", "*", "*")):
+        found += [(n, d, "plugin") for n, d in _scan_cmds(pdir, os.path.basename(pdir) + ":")]
+    seen, out = set(), []
+    for n, d, src in found:
+        if n in seen: continue
+        seen.add(n); out.append({"name": n, "description": d[:160], "source": src})
+    _cmd_cache[cwd] = (time.time(), out)
+    return out
+
+STUDIO_DATA = os.path.expanduser(os.environ.get("STUDIO_DATA", "~/Library/Application Support/Studio"))
+_empty = {}
+def board_empty(name, root):
+    """No designs, no planning objects and no HTML in its folder (the same test Studio uses for its own lists)."""
+    sp = os.path.join(STUDIO_DATA, "boards", name, "state.json")
+    def mt(f):
+        try: return os.stat(f).st_mtime_ns
+        except OSError: return 0
+    key = (mt(sp), mt(root)); hit = _empty.get(name)
+    if hit and hit[0] == key: return hit[1]
+    try:
+        st = json.load(open(sp)) if os.path.exists(sp) else {}
+        empty = not (st.get("designs") or {}) and not (st.get("items") or [])
+        if empty and os.path.isdir(root):
+            base = root.rstrip("/").count(os.sep)
+            for dp, dn, fn in os.walk(root):
+                dn[:] = [] if dp.count(os.sep) - base >= 4 else [d for d in dn if d[:1] not in "._" and d not in ("node_modules", "shared", "final", "studio-assets", "html-archive")]
+                if any(f.lower().endswith(".html") and f[:1] not in "._" for f in fn): empty = False; break
+    except Exception: empty = False
+    _empty[name] = (key, empty)
+    return empty
+
+_previews = {}
+def board_preview(name):
+    """A board's first few designs and its planning objects, read from Studio's saved state only (no folder scan:
+    board folders sit in a cloud-synced folder, where touching every file is slow). Kept until the state file changes."""
+    sp = os.path.join(STUDIO_DATA, "boards", name, "state.json")
+    try: key = os.stat(sp).st_mtime_ns
+    except OSError: key = 0
+    hit = _previews.get(name)
+    if hit and hit[0] == key: return hit[1]
+    try: st = json.load(open(sp)) if key else {}
+    except Exception: st = {}
+    try: root = next(r["root"] for r in json.load(open(os.path.join(STUDIO_DATA, "boards.json"))) if r.get("name") == name)
+    except Exception: root = ""
+    ds = st.get("designs") or {}
+    ids = [i for i in ds if not i.startswith("loose/")]
+    shown = []
+    for i in ids:                                   # a design whose file is gone is passed over
+        if len(shown) == 3: break
+        if os.path.isfile(os.path.join(root, i)): shown.append({"id": i, "w": ds[i].get("w") or 1080, "h": ds[i].get("h") or 1350})
+    items = [{"kind": i.get("kind"), "x": i.get("x", 0), "y": i.get("y", 0), "w": i.get("w", 0), "h": i.get("h", 0), "rot": i.get("rot"),
+              "text": (i.get("text") or "")[:60], "src": i.get("src")} for i in (st.get("items") or []) if i.get("kind") != "arrow"][:300]
+    out = {"name": name, "designCount": len(ids), "designs": shown, "items": items}
+    _previews[name] = (key, out)
+    return out
+
+def studio_boards(base):
+    """Every Studio board with its pin, dates and the cards on it. Read from Studio's own files, so it works while Studio is down."""
+    from urllib.parse import quote
+    try: reg = json.load(open(os.path.join(STUDIO_DATA, "boards.json")))
+    except Exception: reg = []
+    try: cards = json.load(open(DATA))["cards"]
+    except Exception: cards = []
+    kept = kept_boards(); out = []
+    for i, r in enumerate(reg):
+        name = r.get("name", "")
+        d = os.path.join(STUDIO_DATA, "boards", name)
+        try: st = os.stat(d); created = getattr(st, "st_birthtime", st.st_mtime)
+        except OSError: created = 0
+        try: updated = max(os.path.getmtime(os.path.join(d, f)) for f in os.listdir(d))
+        except (OSError, ValueError): updated = created
+        if name not in kept and board_empty(name, r.get("root", "")): continue      # nothing on it: not listed anywhere (permanent boards always are)
+        on = sorted((c for c in cards if c.get("studio") == name), key=lambda c: c.get("status") == "Done")
+        out.append({"name": name, "kept": name in kept, "closed": bool(r.get("closed")), "exists": os.path.isdir(r.get("root", "")),
+                    "created": created, "updated": updated, "order": i, "url": f"{base}/?board={quote(name)}",
+                    "cards": [{"id": c["id"], "title": c["title"], "status": c.get("status"), "brand": c.get("brand", "")} for c in on]})
+    pinned = sorted((b for b in out if b["kept"]), key=lambda b: kept.index(b["name"]))
+    rest = sorted((b for b in out if not b["kept"]), key=lambda b: (-b["updated"], -b["order"]))
+    return pinned + rest
 
 def tailscale_ip():
     import subprocess

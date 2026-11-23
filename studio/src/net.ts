@@ -1,6 +1,8 @@
 import type { Board, Design, Edit, Item } from '../shared/types'
 import { markReloading, rememberSelection } from './dom'
-import { bump, clientId, get, set, toast, useStore } from './store'
+import { aiMessage } from './ai'
+import { REVIEW } from './mode'
+import { bump, clientId, get, set, toast, useStore, type State } from './store'
 
 let ws: WebSocket | null = null
 const itemsFrom = (list: Item[]) => Object.fromEntries(list.map((i) => [i.id, i]))
@@ -10,6 +12,8 @@ const failed = new Set<string>() // designs showing edits that never reached the
 
 /** Never rejects. When the server cannot be reached the answer is { ok: false, offline: true }. */
 const api = async (url: string, body?: unknown) => {
+  // from the phone only comments are written (the server refuses the rest anyway: this keeps it quiet)
+  if (REVIEW && body !== undefined && url !== '/api/comments') return { ok: false, review: true }
   try {
     const r = await fetch(url, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) })
     return await r.json()
@@ -21,7 +25,7 @@ const reloadTo = (loaded: Record<string, string>, id: string, rev: string) => { 
 
 export async function refreshBoards() {
   const r = await api('/api/boards')
-  const boards: { name: string; root: string; exists: boolean }[] = r.boards || []
+  const boards: State['boards'] = r.boards || []
   set({ boards })
   return boards
 }
@@ -44,7 +48,17 @@ function applyBoard(b: Board) {
   set({ board: b.name, root: b.root, designs, order, loaded, comments: b.comments, items: itemsFrom(b.items || []), ...(same ? {} : { sel: { design: null, sids: [] }, hover: null, editing: null, isel: [], iedit: null }) })
 }
 
-export function connect(board: string) {
+/** The board on screen was closed (here, in another tab or from the CLI): move to the last open one. */
+function closedNow(board: string, list: State['boards']) {
+  current = ''
+  toast(`Closed "${board}". It is under Closed boards, one click reopens it.`)
+  const next = list.filter((x) => !x.closed).pop()
+  if (next) connect(next.name)
+  else location.replace(location.pathname)
+}
+
+/** `again`: the socket dropped and this is the automatic reconnect. */
+export function connect(board: string, again = false) {
   current = board
   if (ws) { ws.onclose = null; ws.close() }
   const sock = new WebSocket(`ws://${location.host}/ws?board=${encodeURIComponent(board)}&client=${clientId}`)
@@ -58,6 +72,8 @@ export function connect(board: string) {
     failed.clear()
     set({ connected: true, loaded })
     sendPresence()
+    // closed while this tab could not hear about it
+    if (again) refreshBoards().then((list) => { if (current === board && list.find((x) => x.name === board)?.closed) closedNow(board, list) })
   }
   sock.onmessage = (ev) => {
     const msg = JSON.parse(ev.data)
@@ -81,8 +97,10 @@ export function connect(board: string) {
       set({ items: next, isel: s.isel.filter((i) => next[i]) })
     }
     else if (msg.type === 'error') toast(msg.error)
+    else if (msg.type === 'ai') aiMessage(msg)
+    else if (msg.type === 'closed') { current = ''; refreshBoards().then((list) => closedNow(board, list)) }
   }
-  sock.onclose = () => { set({ connected: false }); if (current === board) setTimeout(() => current === board && connect(board), 1000) }
+  sock.onclose = () => { set({ connected: false }); if (current === board) setTimeout(() => current === board && connect(board, true), 1000) }
   const url = new URL(location.href)
   url.searchParams.set('board', board)
   history.replaceState(null, '', url)
@@ -146,6 +164,15 @@ export const transferApi = (body: Record<string, unknown>) => api('/api/transfer
 export function reloadDesign(id: string) { const s = get(); if (s.designs[id]) set({ loaded: reloadTo(s.loaded, id, `${s.designs[id].rev}-r${Date.now()}`) }) }
 export const newDesign = (name: string, size: string) => api('/api/new', { board: get().board, name, size })
 export const addBoard = (name: string, root: string) => api('/api/boards', { name, root })
+/** Put a board away: the server stops loading and watching it. Its tabs are sent a `closed` message and move on. */
+export const closeBoard = (name: string) => api('/api/boards', { close: name })
+/** Bring a closed board back and show it. */
+export async function openBoard(name: string) {
+  const r = await api('/api/boards', { open: name })
+  if (!r.ok) { toast(r.error || 'Could not reopen the board'); return }
+  await refreshBoards()
+  connect(name)
+}
 export const exportDesign = (design: string, scale: number, format: string) => api('/api/export', { board: get().board, design, scale, format })
 
 /** `design` null: for a piece on the bare board. */

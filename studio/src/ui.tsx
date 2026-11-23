@@ -70,7 +70,7 @@ export function Color({ color, alpha, onChange }: { color: string; alpha: number
   const [hex, setHex] = useState(color.replace('#', '').toUpperCase())
   useEffect(() => setHex(color.replace('#', '').toUpperCase()), [color])
   const cancel = useRef(false)
-  const typed = useRef(false) // only a hex they actually typed is applied: clicking into the field and out again changes nothing
+  const typed = useRef(false) // only a hex the user actually typed is applied: clicking into the field and out again changes nothing
   const full = /^#[0-9a-f]{6}$/i.test(color) ? color : '#000000'
   // Picking a colour for something fully transparent (no background yet) means "make it this colour", not "this colour at 0%".
   const solid = alpha === 0 ? 1 : alpha
@@ -142,6 +142,7 @@ const P: Record<string, ReactNode> = {
   minus: <path d="M3 8h10" />,
   x: <path d="M4 4l8 8M12 4l-8 8" />,
   chevron: <path d="M6 4l4 4-4 4" />,
+  scale: <><path d="M3 13V8M3 13h5M3 13l5-5" /><path d="M9 3h4v4" /><path d="M13 3L9.5 6.5" /></>,
   group: <><rect x="2.5" y="2.5" width="6" height="6" rx="1" /><rect x="7.5" y="7.5" width="6" height="6" rx="1" /></>,
   undo: <path d="M5.5 3L2.5 6l3 3M2.5 6H10a3.5 3.5 0 010 7H7" />,
   redo: <path d="M10.5 3l3 3-3 3M13.5 6H6a3.5 3.5 0 000 7h3" />,

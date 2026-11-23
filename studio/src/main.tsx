@@ -4,5 +4,7 @@ import './styles.css'
 import { Editor } from './App'
 import { installKeys } from './keys'
 
-installKeys()
+import { REVIEW } from './mode'
+
+if (!REVIEW) installKeys()
 createRoot(document.getElementById('root')!).render(<Editor />)

@@ -79,6 +79,19 @@ export function setAttr(design: string, el: HTMLElement, name: string, value: st
   sendEdits(design, [{ kind: 'attr', sid: sidOf(el), name, value }])
 }
 
+/** Several attributes and styles on one element as a single change (one ⌘Z puts all of it back). */
+export function changeEl(design: string, el: HTMLElement, attrs: Record<string, string | null>, props: Record<string, string | null> = {}) {
+  if (isReloading(design)) return
+  flush()
+  const sid = sidOf(el)
+  const edits: Edit[] = Object.entries(attrs).map(([name, value]) => { if (value === null) el.removeAttribute(name); else el.setAttribute(name, value); return { kind: 'attr', sid, name, value } })
+  for (const [k, v] of Object.entries(props)) { if (v === null) el.style.removeProperty(k); else el.style.setProperty(k, v) }
+  if (Object.keys(props).length) edits.push({ kind: 'style', sid, props })
+  if (el.tagName === 'IMG') { if ('src' in attrs) { forget(el); el.addEventListener('load', () => reshape(el), { once: true }) } else reshape(el) }
+  bump()
+  sendEdits(design, edits)
+}
+
 // ---------- moving ----------
 export interface Mover { el: HTMLElement; mode: 'lt' | 'tr'; left: number; top: number; tx: number; ty: number }
 
@@ -124,12 +137,76 @@ export function nudge(dx: number, dy: number) {
 // ---------- structure ----------
 export async function removeDesign(id: string) {
   const name = id.split('/').slice(-2).join('/')
-  // a loose piece goes like any element: no question, ⌘Z brings it back
-  if (!get().designs[id]?.loose && !(await ask(`Delete the design "${name}"?`, 'The HTML file is removed from its folder. A copy is kept in Studio\'s trash, and ⌘Z brings it back.', 'Delete design'))) return
+  // no question, as in Figma: the file goes to Studio's trash and ⌘Z brings it back
+  void name
   flush()
   await settledAll() // the last tweak must reach the file before the delete does
   const r = await deleteDesign(id)
   if (r.ok) { select(null); toast(`${id.startsWith('loose/') ? 'Deleted' : 'Design deleted'}. ⌘Z to undo.`) } else toast(r.error || 'Could not delete')
+}
+
+// ---- whole frames: ⌘C / ⌘V / ⌘D on a frame (the copy is a new design file) ----
+const FRAMES = 'studio-frames:'
+let frameClip: { board: string; ids: { id: string; x: number; y: number; w: number; h: number }[] } | null = null
+/** The frames selected as a whole: several, or one with nothing inside it picked. */
+export function selectedFrames(): string[] {
+  const s = get()
+  return s.dsel.length ? s.dsel : s.sel.design && !s.sel.sids.length ? [s.sel.design] : []
+}
+export function copyFrames(ids = selectedFrames()) {
+  const s = get()
+  const list = ids.filter((id) => s.designs[id]).map((id) => ({ id, x: s.designs[id].x, y: s.designs[id].y, w: s.designs[id].w, h: s.designs[id].h }))
+  if (!list.length) return false
+  frameClip = { board: s.board, ids: list }
+  clipboard = [] // a frame copy replaces an element copy
+  navigator.clipboard?.writeText(FRAMES + JSON.stringify(frameClip)).catch(() => {})
+  toast(`Copied ${list.length > 1 ? `${list.length} frames` : 'the frame'}. ⌘V pastes a copy (on any board).`)
+  return true
+}
+/** ⌘V with frames on the clipboard (from this tab, another tab or another board). */
+export async function pasteFrames(text?: string): Promise<boolean> {
+  if (text?.startsWith(FRAMES)) { try { frameClip = JSON.parse(text.slice(FRAMES.length)) } catch { /* keep ours */ } }
+  else if (text && !text.startsWith(FRAMES)) return false
+  if (!frameClip?.ids.length) return false
+  const s = get()
+  const same = frameClip.board === s.board
+  // same board: right of the originals; another board: in the middle of the view
+  const x0 = Math.min(...frameClip.ids.map((f) => f.x)), y0 = Math.min(...frameClip.ids.map((f) => f.y))
+  const x1 = Math.max(...frameClip.ids.map((f) => f.x + f.w)), y1 = Math.max(...frameClip.ids.map((f) => f.y + f.h))
+  const v = s.view, cx = (s.size.w / 2 - v.x) / v.z, cy = (s.size.h / 2 - v.y) / v.z
+  const dx = same ? x1 - x0 + 120 : Math.round(cx - (x0 + x1) / 2), dy = same ? 0 : Math.round(cy - (y0 + y1) / 2)
+  toast(`Pasting ${frameClip.ids.length > 1 ? `${frameClip.ids.length} frames` : 'the frame'}…`)
+  const made: string[] = []
+  for (const f of frameClip.ids) {
+    const r = await fetch(`/api/copy-design?board=${encodeURIComponent(s.board)}`, { method: 'POST', body: JSON.stringify({ fromBoard: frameClip.board, fromId: f.id, x: f.x + dx, y: f.y + dy, w: f.w, h: f.h }) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'Studio is not answering' }))
+    if (!r.ok) { toast(r.error || 'Could not paste the frame'); continue }
+    made.push(r.design)
+  }
+  for (let i = 0; i < 60 && made.some((id) => !get().designs[id]); i++) await new Promise((res) => setTimeout(res, 50))
+  const here = made.filter((id) => get().designs[id])
+  if (here.length) { if (here.length > 1) set({ dsel: here, sel: { design: null, sids: [] }, isel: [] }); else select(here[0], []); toast(`Pasted ${here.length > 1 ? `${here.length} frames` : 'a copy of the frame'}.`) }
+  return true
+}
+/** ⌘D on frames: copy and paste in one go, next to the originals. */
+export async function duplicateFrames(ids = selectedFrames()) {
+  const keep = frameClip
+  if (!copyFrames(ids)) return
+  await pasteFrames()
+  frameClip = keep ?? frameClip
+}
+
+/** Several whole frames at once: one question, then each file goes to Studio's trash (⌘Z brings them back one by one). */
+export async function removeDesigns(ids: string[]) {
+  const s = get()
+  const real = ids.filter((id) => s.designs[id])
+  if (!real.length) return
+  if (real.length === 1) return removeDesign(real[0])
+  flush()
+  await settledAll()
+  let ok = 0
+  for (const id of real) if ((await deleteDesign(id)).ok) ok++
+  select(null)
+  toast(ok === real.length ? `${ok} designs deleted. ⌘Z to undo.` : `Deleted ${ok} of ${real.length}.`)
 }
 
 export async function revert(id: string) {
@@ -151,7 +228,7 @@ export async function deleteSelection() {
   const els = selected()
   const inside = els.reduce((n, el) => n + el.querySelectorAll('[data-sid]').length, 0)
   const big = els.some((el) => { const b = boxOf(sel.design!, el); return (b.w * b.h) / (d.w * d.h) > 0.4 })
-  if ((inside > 4 || big) && !(await ask(`Delete ${els.length > 1 ? 'these elements' : label(els[0])}?`, `${inside ? `This also deletes the ${inside} element${inside > 1 ? 's' : ''} inside it. ` : 'This is a large part of the design. '}⌘Z undoes this.`, 'Delete'))) return
+  void inside; void big // (no question: ⌘Z brings it back)
   lastElementDelete = Date.now()
   structural(sel.design, sel.sids.map((sid) => ({ kind: 'remove', sid })))
   select(sel.design, [])
@@ -221,6 +298,26 @@ function carried(c: { look: string; own: Record<string, string> }, root: HTMLEle
   return t.innerHTML
 }
 
+/**
+ * A pasted piece keeps its place when it fits in the frame it lands in; when it would hang (mostly) outside, as a
+ * piece from a taller ad does, it goes to the middle of the frame, as Figma does.
+ */
+function inFrame(html: string, c: { w?: number; h?: number }, root: HTMLElement): string {
+  const t = document.createElement('template')
+  t.innerHTML = html
+  const el = t.content.firstElementChild as HTMLElement | null
+  if (!el || !c.w || !c.h) return html
+  const W = root.offsetWidth, H = root.offsetHeight
+  const left = parseFloat(el.style.left), top = parseFloat(el.style.top)
+  if (!Number.isFinite(left) || !Number.isFinite(top)) return html
+  const shownW = Math.max(0, Math.min(left + c.w, W) - Math.max(left, 0)), shownH = Math.max(0, Math.min(top + c.h, H) - Math.max(top, 0))
+  if (shownW * shownH >= c.w * c.h * 0.6) return html // (mostly) inside already
+  el.style.left = `${Math.round((W - c.w) / 2)}px`
+  el.style.top = `${Math.round((H - c.h) / 2)}px`
+  el.style.removeProperty('right'); el.style.removeProperty('bottom'); el.style.removeProperty('translate')
+  return t.innerHTML
+}
+
 /** The highest z-index among the artboard's pieces. Above 0 means the layers were reordered and every piece carries one. */
 const topZ = (root: Element) => Math.max(0, ...paintOrder(root).map((el) => parseInt(getComputedStyle(el).zIndex) || 0))
 /** Give a new piece this z-index. Without one it would paint behind every reordered piece, the background photo included. */
@@ -235,28 +332,90 @@ function withZ(html: string, z: number): string {
   return t.innerHTML
 }
 
-let clipboard: { html: string; look: string; own: Record<string, string> }[] = []
+type Clip = { html: string; look: string; own: Record<string, string>; w?: number; h?: number }
+let clipboard: Clip[] = []
 let clipFrom: string | null = null
-/** What copy() put on the system clipboard, so a paste can tell "the element I just copied" from an older screenshot. */
-export const clipText = () => clipboard.map((c) => c.html).join('\n')
+let clipBoard: string | null = null
+const CLIP = 'studio-clip:'
+/**
+ * What copy() puts on the system clipboard: the whole copy, so another tab (or the same tab after a reload, or on
+ * another board) can paste it too. A paste compares it to tell "the element I just copied" from an older screenshot.
+ */
+export const clipText = () => (clipboard.length ? CLIP + JSON.stringify({ board: clipBoard, from: clipFrom, items: clipboard }) : '')
+/** A copy made in another tab arrived on the system clipboard: take it as ours. */
+export function adoptClip(text: string): boolean {
+  if (!text.startsWith(CLIP) || text === clipText()) return text === clipText() && !!clipboard.length
+  try {
+    const j = JSON.parse(text.slice(CLIP.length))
+    if (!Array.isArray(j.items) || !j.items.length) return false
+    clipboard = j.items; clipFrom = j.from || null; clipBoard = j.board || null
+    return true
+  } catch { return false }
+}
+/** Links to files in a copied piece, made to work from anywhere: /b/<board>/<path> (resolved against its own file). */
+function servedLinks(html: string, base: string): string {
+  const fix = (u: string) => {
+    if (/^(data:|blob:|#)/i.test(u.trim())) return u
+    try { const url = new URL(u.trim(), base); return url.origin === location.origin && url.pathname.startsWith('/b/') ? url.pathname : u } catch { return u }
+  }
+  return html
+    .replace(/(\s(?:src|href|poster)\s*=\s*)(["'])(.*?)\2/gi, (_m, a, q, u) => `${a}${q}${fix(u)}${q}`)
+    .replace(/url\(\s*(&quot;|["']?)(.*?)\1\s*\)/gi, (_m, q, u) => `url(${q}${fix(u)}${q})`)
+}
+/** The other way round on paste: each /b/... link becomes a path from the design it lands in (files from another board are copied in). */
+async function localLinks(html: string, design: string | null): Promise<string> {
+  const urls = [...new Set(html.match(/\/b\/[^"'()\s&]+/g) || [])]
+  if (!urls.length) return html
+  const s = get()
+  const r = await fetch(`/api/import-assets?board=${encodeURIComponent(s.board)}${design ? `&design=${encodeURIComponent(design)}` : ''}`, { method: 'POST', body: JSON.stringify({ urls }) }).then((r) => r.json()).catch(() => ({}))
+  for (const [u, rel] of Object.entries((r.map || {}) as Record<string, string>)) html = html.split(u).join(rel.split('/').map(encodeURIComponent).join('/'))
+  return html
+}
 export function copy() {
   const els = selected()
   if (!els.length) return
-  clipboard = els.map((el) => { const p = portable(el); return { html: clean(el.outerHTML), look: p.html, own: p.own } })
+  clipboard = els.map((el) => { const p = portable(el); return { html: clean(el.outerHTML), look: servedLinks(p.html, el.ownerDocument.baseURI), own: p.own, w: el.offsetWidth, h: el.offsetHeight } })
   clipFrom = get().sel.design
+  clipBoard = get().board
+  frameClip = null // the last copy wins
   // also onto the system clipboard, or an image copied earlier would still be there and win the next ⌘V
   navigator.clipboard?.writeText(clipText()).catch(() => {})
   toast(`Copied ${clipboard.length} element${clipboard.length > 1 ? 's' : ''}`)
 }
 export async function paste() {
   if (!clipboard.length) return
-  const design = get().sel.design
-  if (!design) { toast('Click a design first, then paste'); return }
+  const s = get()
+  const design = s.sel.design && !s.designs[s.sel.design]?.loose ? s.sel.design : null
+  const sameBoard = clipBoard === s.board
+  // nothing (or a loose piece) selected: as in Figma, it lands on the board, in the middle of the view
+  if (!design) {
+    const v = s.view, cx = (s.size.w / 2 - v.x) / v.z, cy = (s.size.h / 2 - v.y) / v.z
+    let dx = 0
+    for (const c of clipboard) {
+      const w = Math.max(20, Math.round(c.w || 300)), h = Math.max(20, Math.round(c.h || 200))
+      const t = document.createElement('template')
+      t.innerHTML = await localLinks(carried(c, null), null)
+      const el = t.content.firstElementChild as HTMLElement | null
+      if (!el) continue
+      el.style.position = 'absolute'; el.style.left = '0px'; el.style.top = '0px'; el.style.width = `${w}px`
+      if (el.tagName !== 'IMG' && !el.textContent?.trim()) el.style.height = `${h}px`
+      el.style.removeProperty('right'); el.style.removeProperty('bottom'); el.style.removeProperty('translate')
+      if (el.tagName === 'IMG') for (const p of INHERITED) el.style.removeProperty(p) // a picture has no text to style
+      await addLoose(t.innerHTML, { x: cx - w / 2 + dx, y: cy - h / 2, w, h }, el.tagName === 'IMG' ? 'image' : 'piece')
+      dx += w + 40
+    }
+    return
+  }
+  if (isPage(design)) { toast(FLOW_MSG); return }
   const root = frames.get(design)?.root
   if (!root) { toast('Zoom in on this design to load it, then paste'); return }
   if (!root.hasAttribute('data-sid')) { toast('This file has no artboard element to paste into'); return }
   let z = topZ(root)
-  for (const c of clipboard) await structural(design, [{ kind: 'insert', parent: sidOf(root), html: withZ(design === clipFrom ? c.html : carried(c, root), z ? ++z : 0) }], { select: true }, design === clipFrom ? null : clipFrom)
+  const here = sameBoard && design === clipFrom
+  for (const c of clipboard) {
+    const html = inFrame(here ? c.html : await localLinks(carried(c, root), design), c, root)
+    await structural(design, [{ kind: 'insert', parent: sidOf(root), html: withZ(html, z ? ++z : 0) }], { select: true }, here || !sameBoard ? null : clipFrom)
+  }
 }
 
 export async function insert(design: string, html: string, edit = false) {
@@ -625,7 +784,7 @@ export function startEditing(design: string, el: HTMLElement, at?: { x: number; 
     // Line by line: a "\n" in insertText makes Chrome wrap the following lines in <div>, and the block stops being plain copy.
     text.split('\n').forEach((line, i) => { if (i) doc.execCommand('insertLineBreak'); if (line) doc.execCommand('insertText', false, line) })
   }
-  // Switching to another app blurs the copy too, but that is not "done": they are fetching words to paste. Focus comes back with the window.
+  // Switching to another app blurs the copy too, but that is not "done": the user is fetching words to paste. Focus comes back with the window.
   const blur = () => setTimeout(() => { if (document.hasFocus() && editState?.el === el && Date.now() - panelPress > 600) finishEditing() }, 0)
   // Leaving has to work even when the copy has lost focus (after a press on the panel): the iframe takes the pointer
   // while editing, so the canvas never sees a click on another piece, and Escape goes to the iframe's body.
@@ -766,7 +925,9 @@ const union = (bs: Box[]): Box | null => {
 }
 export const fitAll = () => { const s = get(); const all = [...Object.values(s.designs), ...Object.values(s.items).filter((i) => i.kind !== 'arrow')]; if (all.length) zoomToBox(union(all)) }
 export function fitSelection() {
-  const { sel, designs } = get()
+  const { sel, designs, isel, items, dsel } = get()
+  const its = [...isel.map((i) => items[i]), ...dsel.map((d) => designs[d])].filter((i) => i && (i as { kind?: string }).kind !== 'arrow') as Box[]
+  if (!sel.design && its.length) return zoomToBox(union(its), 1)
   if (!sel.design) return fitAll()
   const els = selected()
   zoomToBox(els.length ? union(els.map((el) => boxOf(sel.design!, el))) : designs[sel.design], els.length ? 3 : 1)

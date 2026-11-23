@@ -2,10 +2,20 @@ import { boxOf, elOf, isPage, rawBox } from '../dom'
 import { rename } from '../commands'
 import { commentOp } from '../net'
 import { set, useStore } from '../store'
+import { useAi } from '../ai'
+import { copyRef, frameRef } from '../refs'
 import type { Design } from '../../shared/types'
 import type { Comment } from '../../shared/types'
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+const CORNERS = ['nw', 'ne', 'se', 'sw']
+/** How far an element is turned with the `rotate` property (what the Rotate field and the corner drag set). */
+export function rotOf(el: Element): number {
+  const r = getComputedStyle(el).rotate
+  return r && r !== 'none' ? parseFloat(r.split(' ').pop()!) || 0 : 0
+}
+/** The handle that sits where `h` would be once the box is turned `deg`: dragging it outwards always grows. */
+const turned = (h: string, deg: number) => HANDLES[(HANDLES.indexOf(h) + Math.round(deg / 45) + 8) % 8]
 
 export function shortName(id: string): string {
   if (id.startsWith('loose/')) return id.slice(6).replace(/-\d+\.html$/i, '')
@@ -14,7 +24,7 @@ export function shortName(id: string): string {
   return id.replace(/\.html$/i, '').split('/').slice(-2).join('/')
 }
 
-/** What a design is called on the board: the name he gave it, else its file name. */
+/** What a design is called on the board: the name the user gave it, else its file name. */
 export const nameOf = (d: Design | undefined, id: string) => d?.title || shortName(id)
 
 function Pin({ c, index }: { c: Comment; index: number }) {
@@ -56,6 +66,8 @@ export function Overlay() {
   const comments = useStore((s) => s.comments)
   const renaming = useStore((s) => s.renaming)
   const drop = useStore((s) => s.drop)
+  const dsel = useStore((s) => s.dsel)
+  const expanding = useAi((s) => !!s.expand || !!s.crop)
   useStore((s) => s.tick)
   const z = view.z
   const sx = (x: number) => x * z + view.x
@@ -71,7 +83,17 @@ export function Overlay() {
     const x0 = Math.max(b.x, d.x), y0 = Math.max(b.y, d.y), x1 = Math.min(b.x + b.w, d.x + d.w), y1 = Math.min(b.y + b.h, d.y + d.h)
     return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : b
   }
-  const single = els.length === 1 ? clip(boxOf(sel.design!, els[0]), sel.design!) : null
+  // trimmed to the frame, unless most of the piece is outside it: then the whole box shows, so it can be grabbed and dragged back in
+  const single = els.length === 1 ? (() => { const raw = rawBox(sel.design!, els[0]), c = clip(boxOf(sel.design!, els[0]), sel.design!); return c.w * c.h < raw.w * raw.h * 0.5 ? raw : c })() : null
+  // a turned piece gets a turned box, the size of the piece itself, as in Figma
+  const rot = els.length === 1 ? rotOf(els[0]) : 0
+  const tilt = (() => {
+    if (!single || !rot) return null
+    const a = rawBox(sel.design!, els[0]), w = els[0].offsetWidth || a.w, h = els[0].offsetHeight || a.h
+    const cx = a.x + a.w / 2, cy = a.y + a.h / 2
+    return { left: sx(cx - w / 2), top: sy(cy - h / 2), width: w * z, height: h * z, rotate: `${rot}deg`, w, h }
+  })()
+  const turnOk = !editing && !expanding && tool === 'move' && !isPage(sel.design || '')
   // On a thin or tiny box the handles would cover all of it, and every drag would resize instead of move. Leave the
   // middle free: no side handles along a short side, and one corner only when both sides are short.
   const thinW = !!single && single.w * z < 16, thinH = !!single && single.h * z < 16
@@ -90,11 +112,19 @@ export function Overlay() {
                   onFocus={(e) => e.currentTarget.select()} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') { e.currentTarget.value = nameOf(d, id); e.currentTarget.blur() } }}
                   onBlur={(e) => rename(id, e.currentTarget.value)} />
-              : (!d.loose || sel.design === id) && <div className={`frame-label${active ? ' active' : ''}`} data-label={id} title="Drag to move. Double-click to rename." style={{ left: sx(d.x), top: sy(d.y) - 22, maxWidth: Math.max(70, d.w * z) }}>{nameOf(d, id)}{d.dirty && !d.loose ? ' •' : ''}</div>}
+              : (!d.loose || sel.design === id || dsel.includes(id)) && <div className={`frame-label${active || dsel.includes(id) ? ' active' : ''}`} data-label={id} title="Drag to move. Double-click to rename." style={{ left: sx(d.x), top: sy(d.y) - 22, maxWidth: Math.max(70, d.w * z - 24) }}>{nameOf(d, id)}{d.dirty && !d.loose ? ' •' : ''}</div>}
+            {renaming !== id && (!d.loose || sel.design === id || dsel.includes(id)) && d.w * z > 48 && (
+              <button className={`frame-copy${active || dsel.includes(id) ? ' active' : ''}`} title="Copy this frame for the AI (its name and file path)" style={{ left: sx(d.x) + d.w * z - 18, top: sy(d.y) - 21 }}
+                onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); copyRef(frameRef(id)) }}>
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5" /></svg>
+              </button>
+            )}
             {hover?.design === id && sel.design !== id && <div className="hover-outline" style={box(d)} />}
             {drop?.to === id && <div className="drop-outline" style={box(d)} />}
+            {dsel.includes(id) && <div className="design-outline" style={box(d)} />}
             {sel.design === id && !sel.sids.length && (
               <div className="design-outline" style={box(d)}>
+                {!editing && tool === 'move' && !isPage(id) && d.loose && CORNERS.map((c) => <div key={`r${c}`} className={`rot r-${c}`} data-rotate={c} title="Drag to rotate (Shift: 15° steps)" />)}
                 {!editing && tool === 'move' && !isPage(id) && (d.loose ? HANDLES.map((h) => <div key={h} className={`handle h-${h}`} data-handle={h} />) : ['e', 's', 'se'].map((h) => <div key={h} className={`handle h-${h}`} data-fhandle={h} />))}
               </div>
             )}
@@ -104,10 +134,11 @@ export function Overlay() {
       {drop && sel.design && els.map((el, i) => { const b = rawBox(sel.design!, el); return el.tagName === 'IMG' ? <img key={i} className="drag-ghost" src={(el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src} style={box(b)} alt="" /> : <div key={i} className="drag-ghost" style={box(b)} /> })}
       {hoverEl && <div className="hover-outline" style={box(clip(boxOf(hover!.design, hoverEl), hover!.design))} />}
       {els.length > 1 && els.map((el, i) => <div key={i} className="sel-outline" style={box(clip(boxOf(sel.design!, el), sel.design!))} />)}
-      {single && (
-        <div className="sel-box" style={box(single)}>
-          {!editing && tool === 'move' && !isPage(sel.design!) && handles.map((h) => <div key={h} className={`handle h-${h}`} data-handle={h} />)}
-          {!editing && <div className="size-badge">{Math.round(single.w)} × {Math.round(single.h)}</div>}
+      {single && !expanding && (
+        <div className="sel-box" style={tilt ? { left: tilt.left, top: tilt.top, width: tilt.width, height: tilt.height, rotate: tilt.rotate } : box(single)}>
+          {turnOk && CORNERS.map((c) => <div key={`r${c}`} className={`rot r-${c}`} data-rotate={c} title="Drag to rotate (Shift: 15° steps)" />)}
+          {turnOk && handles.map((h) => <div key={h} className={`handle h-${h}`} data-handle={turned(h, rot)} />)}
+          {!editing && <div className="size-badge" style={rot ? { rotate: `${-rot}deg` } : undefined}>{Math.round(tilt ? tilt.w : single.w)} × {Math.round(tilt ? tilt.h : single.h)}{rot ? ` · ${Math.round(rot * 10) / 10}°` : ''}</div>}
         </div>
       )}
       {guides.map((g, i) => g.axis === 'x'

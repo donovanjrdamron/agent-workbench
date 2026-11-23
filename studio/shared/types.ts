@@ -16,6 +16,7 @@ export interface Design {
 export interface Comment {
   id: string
   design: string
+  item?: string // board comment: the board object under the pin
   x: number // artboard coordinates
   y: number
   target: string // description of the element under the pin
@@ -43,6 +44,10 @@ export interface Item {
   attach?: string // a note tied to an image/video item: moves with it
   color?: string
   fs?: number // text size in board px (default: the style's)
+  rot?: number // degrees clockwise, about the middle
+  fx?: boolean // flipped left-right
+  fy?: boolean // flipped upside down
+  crop?: { src: string; x: number; y: number; w: number; h: number } // image: the part of the original (src) showing, in its pixels
 }
 
 export interface Board {

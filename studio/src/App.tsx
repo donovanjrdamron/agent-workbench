@@ -1,14 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { Canvas } from './canvas/Canvas'
-import { fitAll, placeBelow, tidy } from './commands'
-import { connect, refreshBoards } from './net'
+import { fitAll, placeBelow, tidy, zoomToBox } from './commands'
+import { connect, openBoard, refreshBoards } from './net'
 import { Left } from './panels/Left'
 import { Props } from './panels/Props'
 import { Toolbar } from './panels/Toolbar'
+import { AiDialog } from './panels/AiDialog'
+import { ContextMenu } from './canvas/ContextMenu'
 import { AgentPanel } from './panels/Agent'
 import { get, useStore } from './store'
+import { REVIEW } from './mode'
+import { ReviewApp } from './review/Review'
 
-export function Editor() {
+/** On the phone (review mode) the board is for looking and commenting only. */
+export function Editor() { return REVIEW ? <ReviewApp /> : <Desk /> }
+
+function Desk() {
   const board = useStore((s) => s.board)
   const count = useStore((s) => s.order.length)
   const boards = useStore((s) => s.boards)
@@ -18,18 +25,35 @@ export function Editor() {
   const [fitted, setFitted] = useState('')
   const [ready, setReady] = useState(false)
   const known = useRef<{ board: string; ids: Set<string> } | null>(null)
+  // the browser tab names the board, so several Studio tabs can be told apart
+  useEffect(() => { document.title = board ? `${board} · Studio` : 'Studio' }, [board])
 
   useEffect(() => {
     (async () => {
       const list = await refreshBoards()
-      const want = new URLSearchParams(location.search).get('board')
-      const pick = list.find((b) => b.name === want) || list[list.length - 1]
-      if (pick) connect(pick.name)
+      // a board merged into a permanent board: its old link opens the permanent one
+      const asked = new URLSearchParams(location.search).get('board')
+      const aliases: Record<string, string> = asked ? await fetch('/api/boards').then((r) => r.json()).then((j) => j.aliases || {}).catch(() => ({})) : {}
+      const want = (asked && aliases[asked]) || asked
+      if (want !== asked) { const u = new URL(location.href); u.searchParams.set('board', want!); history.replaceState(null, '', u) }
+      // a link to a closed board reopens it; otherwise the newest open board
+      const pick = list.find((b) => b.name === want) || list.filter((b) => !b.closed).pop()
+      if (pick?.closed) await openBoard(pick.name)
+      else if (pick) connect(pick.name)
       setReady(true)
     })()
   }, [])
-  useEffect(() => { if (board && count && fitted !== board) { setFitted(board); requestAnimationFrame(fitAll) } }, [board, count, fitted])
-  // Once real sizes are known, untangle frames that ended up on top of each other. Never ones they arranged himself:
+  // ?focus=<folder>: a task on a permanent board opens on its own section
+  useEffect(() => {
+    if (!board || !count || fitted === board) return
+    setFitted(board)
+    requestAnimationFrame(() => {
+      const focus = new URLSearchParams(location.search).get('focus')
+      const sec = focus ? Object.values(get().items).find((i) => i.kind === 'section' && i.text === focus) : undefined
+      if (sec) zoomToBox(sec); else fitAll()
+    })
+  }, [board, count, fitted])
+  // Once real sizes are known, untangle frames that ended up on top of each other. Never ones the user arranged himself:
   // a board is only tidied as a whole while every frame still sits where the server first put it; after that, only
   // a design that has just arrived on top of another one is moved (below the rest).
   useEffect(() => {
@@ -50,9 +74,11 @@ export function Editor() {
     <div className="app">
       <Left />
       <main className="stage">
-        {board ? <Canvas /> : <div className="loading">{ready && !boards.length ? 'No boards yet. Click + (top left) and point it at a folder of HTML designs.' : 'Loading…'}</div>}
+        {board ? <Canvas /> : <div className="loading">{ready && !boards.length ? 'No boards yet. Click + (top left) and point it at a folder of HTML designs.' : ready && boards.every((b) => b.closed) ? 'Every board is closed. Reopen one under Closed boards (top left).' : 'Loading…'}</div>}
         <Toolbar />
         {board && <AgentPanel />}
+        <AiDialog />
+        <ContextMenu />
         {board && !connected && <div className="offline">Studio is not answering. Nothing you change is saved until it is back.</div>}
         {toastMsg && <div className="toast">{toastMsg}</div>}
         {asking && (

@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { deleteSelection, duplicate, finishEditing, flush, moveProps, mover, removeDesign, revert, selectParent, selectionHost, setAttr, style, styleSelection, zOrder } from '../commands'
-import { boxOf, cssColor, docOf, elOf, frames, isPage, isTextLeaf, label, toCss } from '../dom'
+import { boxOf, cssColor, docOf, elOf, frames, isPage, isTextLeaf, label, sidOf, toCss } from '../dom'
+import { AiButtons } from './AiDialog'
+import { copyRef, frameRef } from '../refs'
 import { exportDesign, saveLayout, settled, upload } from '../net'
+import { startSlicing } from '../canvas/Slices'
 import { get, set, toast, useStore } from '../store'
 import { Btn, Color, Icon, Num, Section, Select } from '../ui'
 
@@ -84,6 +87,7 @@ function ExportBox({ design }: { design: string }) {
         <Select value={format} onChange={setFormat} options={[{ value: 'png', label: 'PNG' }, { value: 'jpg', label: 'JPG' }, { value: 'pdf', label: 'PDF' }]} />
         <button className="primary" disabled={busy} onClick={run}>{busy ? 'Rendering…' : 'Export'}</button>
       </div>
+      <button className="ghost" title="Mark parts of this design and export each as its own picture (for Klaviyo)" onClick={() => startSlicing(design)}>Slice for export…</button>
       {last && <p className="hint path">{last}</p>}
     </Section>
   )
@@ -111,15 +115,36 @@ function InlineCss({ design, el }: { design: string; el: HTMLElement }) {
   )
 }
 
+/** What paints a frame's background: the frontmost layer that covers (nearly) all of it and has a fill, else the artboard. */
+export function backgroundOf(id: string): HTMLElement | null {
+  const root = frames.get(id)?.root
+  if (!root) return null
+  const r = root.getBoundingClientRect()
+  let hit: HTMLElement = root
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+    if (el.tagName === 'IMG' || el.tagName === 'svg' || el.closest('svg')) continue
+    const b = el.getBoundingClientRect(), cs = getComputedStyle(el)
+    if (b.width * b.height < r.width * r.height * 0.97 || cs.visibility === 'hidden' || cs.display === 'none') continue
+    if (cssColor(cs.backgroundColor).alpha > 0 || cs.backgroundImage !== 'none') hit = el
+  }
+  return hit
+}
+
 function DesignPanel({ id }: { id: string }) {
   const d = useStore((s) => s.designs[id])
   const root = useStore((s) => s.root)
+  useStore((s) => s.tick)
   if (!d) return null
   const page = frames.get(id) ? !frames.get(id)!.art : false
+  const paint = backgroundOf(id)
+  const pcs = paint ? getComputedStyle(paint) : null
+  const bg = pcs ? cssColor(pcs.backgroundColor) : null
+  const setBg = (v: string) => { if (paint) style(id, [paint], { 'background-color': v }, true) }
   return (
     <>
       <Section title="Design">
         <p className="hint path">{root}/{id}</p>
+        <button className="ghost" title="Copies a reference to this frame (its file) that any AI can use to find exactly this design" onClick={() => copyRef(frameRef(id))}>Copy link for AI</button>
         <div className="row"><Num label="W" value={d.w} onChange={() => {}} /><Num label="H" value={d.h} onChange={() => {}} /></div>
         {page && <div className="row">
           <Select title="Preview width" value={d.width || 1200} onChange={(width) => { set({ designs: { ...get().designs, [id]: { ...d, width } } }); saveLayout([{ id, width }]) }}
@@ -131,8 +156,128 @@ function DesignPanel({ id }: { id: string }) {
           <button className="ghost danger" title="Delete this design file (⌫)" onClick={() => removeDesign(id)}>Delete design</button>
         </div>
       </Section>
+      {!page && bg && paint && (
+        <Section title="Background">
+          <Color color={bg.color} alpha={bg.alpha} onChange={(c, a) => setBg(toCss(c, a))} />
+          <div className="brand">{paletteOf(paint.ownerDocument).map(([n, c]) => <button key={n} title={n} style={{ background: c }} onClick={() => setBg(c)} />)}</div>
+          {pcs && pcs.backgroundImage !== 'none' && <p className="hint">This background also has a picture or gradient on top: edit it under the layer's Inline CSS.</p>}
+          {paint !== frames.get(id)?.root && <p className="hint">Painted by the full-size layer {label(paint)}.</p>}
+        </Section>
+      )}
       <ExportBox design={id} />
     </>
+  )
+}
+
+type Dots = readonly (readonly [string, string])[]
+const none = (v: string) => !v || v === 'none' || cssColor(v).alpha === 0
+
+/** Stroke on a box, card or text block: its border (and, for text, an outline on the letters). */
+function StrokePanel({ design, els, dots, text }: { design: string; els: HTMLElement[]; dots: Dots; text: boolean }) {
+  const cs = getComputedStyle(els[0])
+  const w = parseFloat(cs.borderTopWidth) || 0
+  const has = w > 0 && cs.borderTopStyle !== 'none' && cs.borderTopStyle !== 'hidden'
+  const col = cssColor(cs.borderTopColor)
+  const set = (props: Record<string, string | null>) => style(design, els, props, true)
+  const border = (width: number, st: string, color: string) => set({ border: `${width}px ${st} ${color}` }) // (the shorthand resets all four sides)
+  const tw = parseFloat(cs.getPropertyValue('-webkit-text-stroke-width')) || 0
+  const tcol = cssColor(cs.getPropertyValue('-webkit-text-stroke-color') || 'rgb(0,0,0)')
+  return (
+    <>
+      <Section title="Stroke" action={has
+        ? <button className="mini" title="Remove the stroke" onClick={() => set({ border: 'none' })}>−</button>
+        : <button className="mini" title="Add a stroke" onClick={() => border(2, 'solid', '#141414')}>+</button>}>
+        {has && <>
+          <Color color={col.color} alpha={col.alpha} onChange={(c, a) => border(w, cs.borderTopStyle, toCss(c, a))} />
+          <div className="brand">{dots.map(([n, c]) => <button key={n} title={n} style={{ background: c }} onClick={() => border(w, cs.borderTopStyle, c)} />)}</div>
+          <div className="row">
+            <Num label="W" value={w} min={0} step={0.5} suffix="px" title="Stroke weight" onChange={(v) => (v > 0 ? border(v, cs.borderTopStyle, cs.borderTopColor) : set({ border: 'none' }))} />
+            <Select title="Line" value={cs.borderTopStyle} onChange={(v) => border(w, v, cs.borderTopColor)} options={['solid', 'dashed', 'dotted', 'double'].map((x) => ({ value: x, label: x }))} />
+          </div>
+        </>}
+        {!has && <p className="hint">No stroke. + adds one.</p>}
+      </Section>
+      {text && (
+        <Section title="Text outline" action={tw > 0
+          ? <button className="mini" title="Remove the outline" onClick={() => set({ '-webkit-text-stroke': null, '-webkit-text-stroke-width': null, '-webkit-text-stroke-color': null, 'paint-order': null })}>−</button>
+          : <button className="mini" title="Outline the letters" onClick={() => set({ '-webkit-text-stroke': '2px #141414', 'paint-order': 'stroke fill' })}>+</button>}>
+          {tw > 0 && <>
+            <Color color={tcol.color} alpha={tcol.alpha} onChange={(c, a) => set({ '-webkit-text-stroke': `${tw}px ${toCss(c, a)}` })} />
+            <div className="row"><Num label="W" value={tw} min={0} step={0.5} suffix="px" onChange={(v) => set({ '-webkit-text-stroke': v > 0 ? `${v}px ${cs.getPropertyValue('-webkit-text-stroke-color')}` : null })} /></div>
+          </>}
+        </Section>
+      )}
+    </>
+  )
+}
+
+/** An SVG drawing (arrows, circles, icons): its stroke and fill, set on the drawing and on any shape that sets its own. */
+function VectorPanel({ design, els, dots }: { design: string; els: HTMLElement[]; dots: Dots }) {
+  const shapes = els.flatMap((svg) => Array.from(svg.querySelectorAll('path,circle,ellipse,line,polyline,polygon,rect,text'))) as unknown as HTMLElement[]
+  const probe = shapes[0] || els[0]
+  const cs = getComputedStyle(probe)
+  const stroked = !none(cs.stroke), filled = !none(cs.fill)
+  const sw = parseFloat(cs.strokeWidth) || 0
+  const sc = cssColor(stroked ? cs.stroke : 'rgb(20,20,20)'), fc = cssColor(filled ? cs.fill : 'rgb(20,20,20)')
+  const dashed = cs.strokeDasharray && cs.strokeDasharray !== 'none'
+  // on the drawing (its shapes inherit it) and on every shape that has its own value, which would otherwise win
+  const set = (props: Record<string, string | null>) => {
+    style(design, els, props, true)
+    const attr: Record<string, string> = { stroke: 'stroke', 'stroke-width': 'stroke-width', fill: 'fill', 'stroke-dasharray': 'stroke-dasharray', 'stroke-linecap': 'stroke-linecap' }
+    const own = shapes.filter((sh) => Object.keys(props).some((k) => attr[k] && (sh.hasAttribute(attr[k]) || sh.style.getPropertyValue(k))))
+    if (own.length) style(design, own, props, true)
+  }
+  return (
+    <Section title="Vector">
+      <h5>Stroke</h5>
+      <div className="row">
+        <Color color={sc.color} alpha={stroked ? sc.alpha : 0} onChange={(c, a) => set({ stroke: toCss(c, a) })} />
+        <button className="mini" title={stroked ? 'No stroke' : 'Add a stroke'} onClick={() => set(stroked ? { stroke: 'none' } : { stroke: '#141414', 'stroke-width': String(sw || 2) })}>{stroked ? '−' : '+'}</button>
+      </div>
+      <div className="brand">{dots.map(([n, c]) => <button key={n} title={n} style={{ background: c }} onClick={() => set({ stroke: c })} />)}</div>
+      {stroked && <div className="row">
+        <Num label="W" value={sw} min={0} step={0.2} title="Stroke weight" onChange={(v) => set({ 'stroke-width': String(v) })} />
+        <Select title="Line" value={dashed ? 'dashed' : 'solid'} onChange={(v) => set({ 'stroke-dasharray': v === 'dashed' ? `${Math.max(2, sw * 3)} ${Math.max(2, sw * 2)}` : 'none' })} options={[{ value: 'solid', label: 'solid' }, { value: 'dashed', label: 'dashed' }]} />
+        <Select title="Line ends" value={cs.strokeLinecap} onChange={(v) => set({ 'stroke-linecap': v })} options={['round', 'butt', 'square'].map((x) => ({ value: x, label: `${x} ends` }))} />
+      </div>}
+      <h5>Fill</h5>
+      <div className="row">
+        <Color color={fc.color} alpha={filled ? fc.alpha : 0} onChange={(c, a) => set({ fill: toCss(c, a) })} />
+        <button className="mini" title={filled ? 'No fill' : 'Add a fill'} onClick={() => set({ fill: filled ? 'none' : '#141414' })}>{filled ? '−' : '+'}</button>
+      </div>
+    </Section>
+  )
+}
+
+/** A drop shadow: box-shadow on boxes and pictures, a drop-shadow filter on drawings (it follows their shape). */
+function ShadowPanel({ design, els }: { design: string; els: HTMLElement[] }) {
+  const el = els[0]
+  const svg = el.tagName.toLowerCase() === 'svg' || el.tagName === 'IMG'
+  const cs = getComputedStyle(el)
+  const cur = svg ? (cs.filter.match(/drop-shadow\(([^)]*\)[^)]*)\)/)?.[1] || '') : cs.boxShadow !== 'none' ? cs.boxShadow : ''
+  const nums = (cur.match(/-?\d+(\.\d+)?px/g) || []).map((v) => parseFloat(v))
+  const colorStr = cur.match(/rgba?\([^)]*\)/)?.[0] || 'rgba(0, 0, 0, 0.35)'
+  const col = cssColor(colorStr)
+  const [x, y, blur] = [nums[0] ?? 0, nums[1] ?? 8, nums[2] ?? 24]
+  const write = (v: { x: number; y: number; blur: number; color: string } | null) => {
+    if (svg) {
+      const rest = cs.filter === 'none' ? '' : cs.filter.replace(/drop-shadow\((?:[^()]|\([^()]*\))*\)/g, '').trim()
+      style(design, els, { filter: v ? `${rest} drop-shadow(${v.x}px ${v.y}px ${v.blur}px ${v.color})`.trim() : rest || null }, true)
+    } else style(design, els, { 'box-shadow': v ? `${v.x}px ${v.y}px ${v.blur}px ${v.color}` : null }, true)
+  }
+  return (
+    <Section title="Shadow" action={cur
+      ? <button className="mini" title="Remove the shadow" onClick={() => write(null)}>−</button>
+      : <button className="mini" title="Add a drop shadow" onClick={() => write({ x: 0, y: 8, blur: 24, color: 'rgba(0, 0, 0, 0.35)' })}>+</button>}>
+      {cur ? <>
+        <Color color={col.color} alpha={col.alpha} onChange={(c, a) => write({ x, y, blur, color: toCss(c, a) })} />
+        <div className="row">
+          <Num label="X" value={x} onChange={(v) => write({ x: v, y, blur, color: colorStr })} />
+          <Num label="Y" value={y} onChange={(v) => write({ x, y: v, blur, color: colorStr })} />
+          <Num label="Blur" value={blur} min={0} onChange={(v) => write({ x, y, blur: v, color: colorStr })} />
+        </div>
+      </> : <p className="hint">No shadow. + adds one.</p>}
+    </Section>
   )
 }
 
@@ -256,6 +401,7 @@ export function Props() {
 
       {img && (
         <Section title="Image">
+          <AiButtons target={{ kind: 'el', design, sid: sidOf(el) }} />
           <button className="ghost" onClick={async () => { const file = await pickFile(); if (file) { try { setAttr(design, el, 'src', await upload(design, file, file.name)) } catch (e) { toast((e as Error).message) } } }}>Replace image</button>
           <div className="row">
             <Select value={cs.objectFit} onChange={(v) => st({ 'object-fit': v })} options={['fill', 'cover', 'contain', 'none', 'scale-down'].map((x) => ({ value: x, label: x }))} />
@@ -264,7 +410,7 @@ export function Props() {
         </Section>
       )}
 
-      {!img && (
+      {!img && el.tagName.toLowerCase() !== 'svg' && (
         <Section title="Background">
           <Color color={bg.color} alpha={bg.alpha} onChange={(c, a) => st({ 'background-color': toCss(c, a) })} />
           <div className="brand">{dots.map(([n, c]) => <button key={n} title={n} style={{ background: c }} onClick={() => st({ 'background-color': c })} />)}</div>
@@ -272,6 +418,8 @@ export function Props() {
         </Section>
       )}
 
+      {!page && (el.tagName.toLowerCase() === 'svg' ? <VectorPanel design={design} els={els} dots={dots} /> : <StrokePanel design={design} els={els} dots={dots} text={text} />)}
+      {!page && <ShadowPanel design={design} els={els} />}
       {els.length === 1 && <InlineCss key={`${design}:${sel.sids[0]}:${line}`} design={design} el={el} />}
       {f && <ExportBox key={design} design={design} />}
     </aside>

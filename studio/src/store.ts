@@ -6,7 +6,7 @@ export interface Box { x: number; y: number; w: number; h: number }
 export interface Guide { axis: 'x' | 'y'; pos: number; from: number; to: number }
 
 export interface State {
-  boards: { name: string; root: string; exists: boolean }[]
+  boards: { name: string; root: string; exists: boolean; closed?: boolean }[]
   board: string
   root: string
   designs: Record<string, Design>
@@ -35,6 +35,8 @@ export interface State {
   // planning objects (boxes, notes, sections, media, links, arrows): not part of any HTML file
   items: Record<string, Item>
   isel: string[] // selected planning objects (a design selection and an item selection never coexist)
+  scaleMode: boolean // K: a corner drag scales anything proportionally (text always scales from a corner)
+  dsel: string[] // several whole frames selected at once (drag a box on the board, or shift-click frames); empty otherwise
   iedit: { id: string; seed?: string } | null // the box whose text is being typed; seed: the key that started it
 }
 
@@ -43,7 +45,7 @@ export const useStore = create<State>(() => ({
   sel: { design: null, sids: [] }, hover: null, editing: null, openComment: null, tool: 'move', space: false,
   view: { x: 80, y: 80, z: 0.3 }, size: { w: 800, h: 600 }, guides: [], marquee: null,
   connected: false, toast: null, tick: 0, afterLoad: null, renaming: null, drop: null, ask: null,
-  items: {}, isel: [], iedit: null,
+  items: {}, isel: [], dsel: [], scaleMode: false, iedit: null,
 }))
 export const get = useStore.getState
 export const set = useStore.setState
@@ -54,7 +56,7 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null
 export function toast(msg: string) {
   set({ toast: msg })
   if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => set({ toast: null }), 4500)
+  toastTimer = setTimeout(() => set({ toast: null }), Math.max(4500, msg.length * 60))
 }
 
 /** In-app confirmation. Resolves true only when the user clicks the confirm button. */
@@ -63,5 +65,9 @@ export function ask(title: string, body: string, ok: string, danger = true): Pro
 }
 
 export function select(design: string | null, sids: number[] = []) {
-  set({ sel: { design, sids }, openComment: null, ...(get().isel.length ? { isel: [] } : {}) })
+  set({ sel: { design, sids }, openComment: null, ...(get().isel.length ? { isel: [] } : {}), ...(get().dsel.length ? { dsel: [] } : {}) })
+}
+/** Select whole frames (and keep the planning objects given): one frame is a normal frame selection. */
+export function selectFrames(ids: string[], items: string[] = []) {
+  set({ dsel: ids.length > 1 ? ids : [], sel: { design: ids.length === 1 && !items.length ? ids[0] : null, sids: [] }, isel: items, openComment: null })
 }

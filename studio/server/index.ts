@@ -6,20 +6,24 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { createServer as createVite } from 'vite'
 import { annotate, applyEdits, describe, indexHtml, lint, oneTagPerLine, outline } from './html'
 import { SIZES, type Board, type Comment, type Design, type Edit, type Item } from '../shared/types'
 import { planOf } from './plan'
+import { AiError, runAi, type AiOp } from './ai'
+import * as hfmcp from './hfmcp'
 
 const PORT = Number(process.env.STUDIO_PORT || 4517)
+// A loaded board nobody has looked at or called for this long is dropped from memory (see `sweep`).
+const IDLE = Number(process.env.STUDIO_IDLE_MS || 3 * 60 * 1000)
 const HOME = os.homedir()
 // The editor's own state (board list, layouts, baselines, version history) lives on the local
 // disk, never in a cloud-synced folder: those can hand back files slowly or not at all.
 const ROOT = process.env.STUDIO_DIR || path.join(HOME, 'Library/Application Support/Studio')
-const EXPORTS = process.env.STUDIO_EXPORTS || (process.env.STUDIO_DIR ? path.join(ROOT, 'exports') : path.join(ROOT, "exports"))
+const EXPORTS = process.env.STUDIO_EXPORTS || path.join(ROOT, 'exports')
 const APP_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 fs.mkdirSync(path.join(ROOT, 'boards'), { recursive: true })
 
@@ -28,15 +32,22 @@ const hash = (t: string) => crypto.createHash('sha1').update(t).digest('hex').sl
 const tilde = (p: string) => path.resolve(p.replace(/^~(?=\/|$)/, HOME))
 
 // ---------- registry ----------
-interface Reg { name: string; root: string }
+/** `closed`: put away. Still listed, never loaded or scanned until something asks for it by name. */
+interface Reg { name: string; root: string; closed?: boolean; permanent?: boolean } // permanent: one board per brand and kind of work, a section per task
 const regPath = path.join(ROOT, 'boards.json')
 const readReg = (): Reg[] => (fs.existsSync(regPath) ? JSON.parse(fs.readFileSync(regPath, 'utf8')) : [])
 const writeReg = (r: Reg[]) => fs.writeFileSync(regPath, JSON.stringify(r, null, 1))
+/** Boards merged into a permanent board: the old name still works and points at its folder there. ROOT/aliases.json */
+const aliasPath = path.join(ROOT, 'aliases.json')
+const aliases = (): Record<string, { board: string; folder: string }> => { try { return JSON.parse(fs.readFileSync(aliasPath, 'utf8')) } catch { return {} } }
+const aliasOf = (name: string) => { const a = aliases()[name]; return a && !readReg().some((r) => r.name === name) ? a : null }
 const safeName = (n: string) => /^[\w .()&,-]{1,80}$/.test(n) && !n.startsWith('.')
 
 interface Layout { x: number; y: number; w: number; h: number; width?: number; title?: string }
 /** `seen`: the rev of each design as the server last saw it, so a file changed while Studio was closed is not mistaken for hand edits. */
-interface State { designs: Record<string, Layout>; comments: Comment[]; seen?: Record<string, string>; items?: Item[] }
+interface State { designs: Record<string, Layout>; comments: Comment[]; seen?: Record<string, string>; items?: Item[]; slices?: Record<string, Slice[]> }
+/** A slice: a part of a design exported as its own picture (emails are rebuilt in Klaviyo from these). Artboard coordinates. */
+interface Slice { id: string; name: string; x: number; y: number; w: number; h: number }
 interface Src { text: string; rev: string; mtime: number; size: number }
 /** One undo step. null means the file did not exist on that side. */
 /** `group`: steps that belong to one action (a piece dragged from one file to another) and are undone together. */
@@ -53,28 +64,34 @@ interface Rt {
   baseRev: Map<string, string>
   saveTimer: NodeJS.Timeout | null
   scanning: boolean
+  used: number // when it was last asked for
+  busy: number // requests still working on it
 }
 const boards = new Map<string, Rt>()
 let presence: { board: string; design: string | null; sids: number[]; at: number } | null = null
 
 const LOOSE = 'loose'
-const isLoose = (id: string) => id.startsWith(LOOSE + '/')
+const isLoose = (id: string) => id.startsWith(LOOSE + '/') || id.split('/')[1] === LOOSE // (a task folder's own loose/ on a permanent board)
 const SKIP_DIRS = new Set(['node_modules', 'shared', 'final', 'studio-assets', 'html-archive'])
 function listHtml(root: string): string[] {
-  const start = fs.existsSync(path.join(root, 'ads')) ? 'ads' : ''
   const out: string[] = []
   const walk = (rel: string, depth: number) => {
     let entries: fs.Dirent[]
     try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }) } catch { return }
+    // a folder with ads/ in it (the board's own folder, or a task's folder on a permanent board) keeps its designs
+    // there, plus pieces left on the board outside any frame (loose/). Everything else beside them is working files.
+    if (depth <= 1 && entries.some((e) => e.isDirectory() && e.name === 'ads')) {
+      for (const sub of ['ads', LOOSE]) if (entries.some((e) => e.isDirectory() && e.name === sub)) walk(rel ? `${rel}/${sub}` : sub, depth + 1)
+      return
+    }
     for (const e of entries) {
       if (e.name.startsWith('.') || e.name.startsWith('_')) continue
       const p = rel ? `${rel}/${e.name}` : e.name
-      if (e.isDirectory()) { if (depth < 4 && !SKIP_DIRS.has(e.name)) walk(p, depth + 1) }
+      if (e.isDirectory()) { if (depth < 5 && !SKIP_DIRS.has(e.name)) walk(p, depth + 1) }
       else if (e.name.toLowerCase().endsWith('.html')) out.push(p)
     }
   }
-  walk(start, 0)
-  if (start) walk(LOOSE, 1) // pieces left on the board outside any frame
+  walk('', 0)
   return out.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 }
 
@@ -105,9 +122,14 @@ function listVersions(rt: Rt, id: string) {
   if (!fs.existsSync(dir)) return []
   return fs.readdirSync(dir).sort().map((f, i) => { const [ts, rev, why] = f.replace(/\.html$/, '').split('-'); return { n: i + 1, ts: Number(ts), rev, why, bytes: fs.statSync(path.join(dir, f)).size, file: path.join(dir, f) } })
 }
+const writeState = (rt: Rt) => fs.writeFileSync(path.join(rt.dir, 'state.json'), JSON.stringify(rt.state, null, 1))
 function saveState(rt: Rt) {
   if (rt.saveTimer) clearTimeout(rt.saveTimer)
-  rt.saveTimer = setTimeout(() => { rt.saveTimer = null; fs.writeFileSync(path.join(rt.dir, 'state.json'), JSON.stringify(rt.state, null, 1)) }, 300)
+  rt.saveTimer = setTimeout(() => { rt.saveTimer = null; writeState(rt) }, 300)
+}
+/** A save still waiting on its timer is written now. */
+function flush(rt: Rt) {
+  if (rt.saveTimer) { clearTimeout(rt.saveTimer); rt.saveTimer = null; writeState(rt) }
 }
 /** The board as plain language for agents (plan.md beside state.json). */
 function writePlan(rt: Rt) {
@@ -122,8 +144,46 @@ function broadcast(rt: Rt, msg: unknown) {
   for (const c of rt.clients) if (c.readyState === 1) c.send(text)
 }
 
+/**
+ * A board organised in sections (the permanent boards): every top folder is one task, drawn inside a section of the
+ * same name. A new file goes beside the others in its folder; the first file of a new folder starts a new row below
+ * everything, with its own section. Real sizes arrive later (the editor measures), so sections grow then too.
+ */
+function placeInSection(rt: Rt, id: string): Layout | null {
+  const top = id.includes('/') ? id.split('/')[0] : ''
+  const all = Object.entries(rt.state.designs)
+  const perm = !!readReg().find((r) => r.name === rt.name)?.permanent
+  if (!top || !(perm || (all.length && (rt.state.items || []).some((i) => i.kind === 'section')))) return null
+  const sibs = all.filter(([k]) => k.startsWith(top + '/')).map(([, d]) => d)
+  const w = 1080, h = /9x16/i.test(id) ? 1920 : 1350
+  if (sibs.length) {
+    const lastY = Math.max(...sibs.map((d) => d.y)), row = sibs.filter((d) => d.y === lastY), x0 = Math.min(...sibs.map((d) => d.x))
+    const x = Math.max(...row.map((d) => d.x + d.w)) + 100
+    return x + w - x0 > 8 * 1180 ? { x: x0, y: Math.max(...sibs.map((d) => d.y + d.h)) + 200, w, h } : { x, y: lastY, w, h }
+  }
+  const boxes = [...all.map(([, d]) => d), ...(rt.state.items || []).filter((i) => i.kind !== 'arrow')]
+  if (!boxes.length) return { x: 300, y: 300, w, h }
+  return { x: Math.min(...boxes.map((b) => b.x)) + 300, y: Math.max(...boxes.map((b) => b.y + b.h)) + 1100, w, h }
+}
+/** Grow (never shrink) the section named after a design's folder so it holds the design. Makes it if missing. */
+function fitSection(rt: Rt, id: string): boolean {
+  const top = id.includes('/') ? id.split('/')[0] : '', d = rt.state.designs[id]
+  if (!top || !d || !(readReg().find((r) => r.name === rt.name)?.permanent || rt.state.items?.some((i) => i.kind === 'section'))) return false
+  rt.state.items ??= []
+  const items = rt.state.items
+  const PAD = 300
+  let s = items.find((i) => i.kind === 'section' && i.text === top)
+  if (!s) { s = { id: 'sec_' + crypto.randomBytes(3).toString('hex'), kind: 'section', text: top, x: d.x - PAD, y: d.y - PAD, w: d.w + 2 * PAD, h: d.h + 2 * PAD } as Item; items.unshift(s); return true } // (first: drawn under everything)
+  const x0 = Math.min(s.x, d.x - PAD), y0 = Math.min(s.y, d.y - PAD), x1 = Math.max(s.x + s.w, d.x + d.w + PAD), y1 = Math.max(s.y + s.h, d.y + d.h + PAD)
+  if (x0 === s.x && y0 === s.y && x1 === s.x + s.w && y1 === s.y + s.h) return false
+  Object.assign(s, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
+  return true
+}
+
 /** First free slot on a loose grid. Real sizes arrive once the editor has rendered the file. */
 function place(rt: Rt, id: string): Layout {
+  const sec = placeInSection(rt, id)
+  if (sec) { rt.state.designs[id] = sec; fitSection(rt, id); return sec }
   const CW = 1180, CH = 2120, COLS = 8
   const taken = new Set(Object.values(rt.state.designs).map((d) => `${Math.round(d.x / CW)},${Math.round(d.y / CH)}`))
   const tall = /9x16/i.test(id)
@@ -224,8 +284,9 @@ async function scanOnce(rt: Rt, first: boolean, force?: Set<string>) {
 
 const loading = new Map<string, Promise<Rt>>()
 function load(name: string): Promise<Rt> {
+  name = aliasOf(name)?.board || name
   const hit = boards.get(name)
-  if (hit) return Promise.resolve(hit)
+  if (hit) { hit.used = Date.now(); return Promise.resolve(hit) }
   let p = loading.get(name)
   if (!p) { p = loadNew(name).finally(() => loading.delete(name)); loading.set(name, p) }
   return p
@@ -238,12 +299,32 @@ async function loadNew(name: string): Promise<Rt> {
   fs.mkdirSync(dir, { recursive: true })
   const sp = path.join(dir, 'state.json')
   const state: State = fs.existsSync(sp) ? JSON.parse(fs.readFileSync(sp, 'utf8')) : { designs: {}, comments: [] }
-  const rt: Rt = { name, root: reg.root, dir, state, src: new Map(), clients: new Set(), undo: [], redo: [], saveTimer: null, baseRev: new Map(), scanning: false }
+  const rt: Rt = { name, root: reg.root, dir, state, src: new Map(), clients: new Set(), undo: [], redo: [], saveTimer: null, baseRev: new Map(), scanning: false, used: Date.now(), busy: 0 }
   await scan(rt, true)
   boards.set(name, rt)
   return rt
 }
-setInterval(() => { for (const rt of boards.values()) scan(rt).catch((e) => console.error('scan failed:', (e as Error).message)) }, 2000)
+/**
+ * Every 2s each loaded board's folder is scanned. A board with no editor tab on it and no call for IDLE is
+ * dropped from memory instead, so its folder is left alone. Nothing is lost: designs and versions are files,
+ * the pending state save is written first, and the next use loads the board again (only undo history goes).
+ */
+const idle = (rt: Rt) => !rt.clients.size && !rt.busy && !rt.scanning && Date.now() - rt.used > IDLE
+function unload(rt: Rt) { flush(rt); boards.delete(rt.name) }
+function sweep() {
+  for (const rt of [...boards.values()]) {
+    if (idle(rt)) unload(rt)
+    else scan(rt).catch((e) => console.error('scan failed:', (e as Error).message))
+  }
+}
+setInterval(sweep, 2000)
+/** A request is working on this board until `release`: it is not unloaded under it. */
+const held = new WeakMap<http.ServerResponse, Rt>()
+function hold(rt: Rt, res: http.ServerResponse) { rt.busy++; held.set(res, rt) }
+function release(res: http.ServerResponse) {
+  const rt = held.get(res)
+  if (rt) { held.delete(res); rt.busy--; rt.used = Date.now() }
+}
 
 const designOf = (rt: Rt, id: string): Design => ({ id, ...rt.state.designs[id], ...(isLoose(id) ? { loose: true } : {}), rev: rt.src.get(id)!.rev, dirty: baseRevOf(rt, id) !== rt.src.get(id)!.rev })
 const payload = (rt: Rt): Board => ({ name: rt.name, root: rt.root, designs: [...rt.src.keys()].map((id) => designOf(rt, id)), comments: rt.state.comments, items: rt.state.items || [] })
@@ -388,7 +469,9 @@ async function render(rt: Rt, id: string, opts: { scale?: number; format?: Forma
   const lay = rt.state.designs[id]
   const format = opts.format || 'png'
   if (!['png', 'jpg', 'pdf'].includes(format)) throw new HttpError(400, 'format must be png, jpg or pdf')
-  const open = async () => (await getBrowser()).newContext({ viewport: { width: Math.round(opts.width || lay?.width || 1080), height: 1920 }, deviceScaleFactor: format === 'pdf' ? 1 : opts.scale || 1 })
+  const declared = Number(rt.src.get(id)?.text.match(/<meta[^>]+name=["']studio:width["'][^>]*content=["'](\d+)/i)?.[1]) || 0
+  const width = opts.width || (declared && (!lay?.width || lay.width === 1200) ? declared : lay?.width) || 1080
+  const open = async () => (await getBrowser()).newContext({ viewport: { width: Math.round(width), height: 1920 }, deviceScaleFactor: format === 'pdf' ? 1 : opts.scale || 1 })
   const ctx = await open().catch(() => { browserP = null; return open() }) // the browser was gone: start a new one, once
   try {
     const page = await ctx.newPage()
@@ -404,6 +487,41 @@ async function render(rt: Rt, id: string, opts: { scale?: number; format?: Forma
     else buf = await page.screenshot({ fullPage: true, ...(format === 'jpg' ? { type: 'jpeg' as const, quality: opts.quality || 92 } : { type: 'png' as const }) })
     const k = format === 'pdf' ? 1 : opts.scale || 1
     return { buf, width: Math.round(size.w * k), height: Math.round(size.h * k) }
+  } finally { await ctx.close() }
+}
+
+/** Every slice of a design as its own picture, from one render: <exports>/<board>/<design>-slices/<design>-01.png … */
+async function exportSlices(rt: Rt, id: string, o: { scale?: number; format?: Format; quality?: number; out?: string }) {
+  const slices = [...(rt.state.slices?.[id] || [])].sort((a, b) => a.y - b.y || a.x - b.x)
+  if (!slices.length) throw new HttpError(400, 'this design has no slices yet')
+  const format = o.format === 'jpg' ? 'jpg' : 'png', scale = Math.min(4, Math.max(1, Number(o.scale) || 2))
+  const lay = rt.state.designs[id]
+  const declared = Number(rt.src.get(id)?.text.match(/<meta[^>]+name=["']studio:width["'][^>]*content=["'](\d+)/i)?.[1]) || 0
+  const width = (declared && (!lay?.width || lay.width === 1200) ? declared : lay?.width) || 1080
+  // named after the design's folder (index.html) or file, without the ad ratio tags
+  const parts = id.replace(/\.html$/i, '').split('/'), stem = (parts.length > 1 && /^index/i.test(parts[parts.length - 1]) ? parts[parts.length - 2] : parts[parts.length - 1]).replace(/[^\w.-]+/g, '-')
+  const dir = o.out ? tilde(o.out) : path.join(EXPORTS, rt.name, `${stem}-slices`)
+  await fsp.mkdir(dir, { recursive: true })
+  // last time's pictures go, so a removed slice does not linger beside the new set
+  for (const f of await fsp.readdir(dir)) if (new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d\\d.*\\.(png|jpg)$`).test(f)) await fsp.rm(path.join(dir, f))
+  const ctx = await (await getBrowser()).newContext({ viewport: { width: Math.round(width), height: 1920 }, deviceScaleFactor: scale })
+  try {
+    const page = await ctx.newPage()
+    await page.goto(`http://127.0.0.1:${PORT}/b/${encodeURIComponent(rt.name)}/${enc(id)}`, { waitUntil: 'load', timeout: 45000 })
+    await page.evaluate('document.fonts.ready')
+    await page.waitForTimeout(500)
+    const el = await page.$('.ad, [data-artboard]')
+    const o0 = el ? (await el.boundingBox()) || { x: 0, y: 0 } : { x: 0, y: 0 }
+    const out = []
+    for (const [i, s] of slices.entries()) {
+      const name = `${stem}-${String(i + 1).padStart(2, '0')}${s.name && !/^slice/i.test(s.name) ? '-' + s.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) : ''}.${format}`
+      const clip = { x: o0.x + s.x, y: o0.y + s.y, width: s.w, height: s.h }
+      const buf = await page.screenshot({ clip, fullPage: true, ...(format === 'jpg' ? { type: 'jpeg' as const, quality: o.quality || 90 } : { type: 'png' as const }) })
+      const target = path.join(dir, name)
+      await fsp.writeFile(target, buf)
+      out.push({ path: target, width: Math.round(s.w * scale), height: Math.round(s.h * scale), slice: s.id })
+    }
+    return { dir, exported: out }
   } finally { await ctx.close() }
 }
 
@@ -577,10 +695,31 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   const q = url.searchParams
   const post = req.method === 'POST'
   if (p === '/api/health') return json(res, { ok: true, root: ROOT, port: PORT, mode: 'html' }), true
-  if (p === '/api/boards' && !post) return json(res, { boards: readReg().map((r) => ({ ...r, exists: fs.existsSync(r.root) })) }), true
+  if (p === '/api/boards' && !post) return json(res, { aliases: Object.fromEntries(Object.entries(aliases()).map(([k, v]) => [k, v.board])), boards: readReg().map((r) => ({ ...r, exists: fs.existsSync(r.root), loaded: boards.has(r.name), viewers: boards.get(r.name)?.clients.size || 0 })) }), true
   if (p === '/api/boards' && post) {
     const b = await bodyJson(req)
     const reg = readReg()
+    if (typeof b.permanent === 'string') {
+      // starred on the work board: a permanent board (one per brand and kind of work, a section per task folder)
+      if (!reg.some((r) => r.name === b.permanent)) throw new HttpError(404, `no such board: ${b.permanent}`)
+      writeReg(reg.map((r) => (r.name !== b.permanent ? r : b.on ? { ...r, permanent: true } : (({ permanent: _p, ...rest }) => rest)(r))))
+      return json(res, { ok: true }), true
+    }
+    if (b.close || b.open) {
+      // closing changes nothing on disk but the flag: files, state and versions stay as they are
+      const name = String(b.close || b.open)
+      if (!reg.some((r) => r.name === name)) throw new HttpError(404, `no such board: ${name}. See: studio boards`)
+      writeReg(reg.map((r) => (r.name !== name ? r : b.close ? { ...r, closed: true } : (({ closed: _c, ...rest }) => rest)(r))))
+      const rt = b.close ? boards.get(name) : undefined
+      if (rt) {
+        // editor tabs on it are told to move on; it leaves memory now, or at the next sweep if something is still working on it
+        for (const c of rt.clients) { if (c.readyState === 1) c.send(JSON.stringify({ type: 'closed' })); c.close() }
+        rt.clients.clear()
+        rt.used = 0
+        if (idle(rt)) unload(rt)
+      }
+      return json(res, { ok: true }), true
+    }
     if (b.remove) { writeReg(reg.filter((r) => r.name !== b.remove)); boards.delete(b.remove); return json(res, { ok: true }), true }
     const root = tilde(String(b.root || ''))
     if (!safeName(String(b.name || ''))) throw new HttpError(400, 'bad board name')
@@ -589,7 +728,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     writeReg([...reg, { name: b.name, root }])
     return json(res, { ok: true, name: b.name, designs: (await load(b.name)).src.size }), true
   }
-  if (p === '/api/config') return json(res, { workboard: process.env.WORKBOARD_URL || 'http://127.0.0.1:4477' }), true
+  if (p === '/api/config') return json(res, { workboard: process.env.WORKBOARD_URL || 'http://127.0.0.1:4477', review: !/^(127\.|::1$|::ffff:127\.)/.test(req.socket.localAddress || '') }), true
   if (p === '/api/selection') {
     if (!presence) return json(res, { board: null }), true
     const rt = boards.get(presence.board)
@@ -603,9 +742,12 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   const b = post && !p.startsWith('/api/upload') ? await bodyJson(req) : {}
   const boardName = q.get('board') || b.board
   if (!p.startsWith('/api/')) return false
+  const al = aliasOf(String(boardName || ''))
   const rt = await load(String(boardName || ''))
+  hold(rt, res)
   const want = q.get('design') || b.design
-  const id = want ? findDesign(rt, String(want)) : ''
+  // an old board name: its designs now sit in their own folder on the permanent board
+  const id = want ? findDesign(rt, al && rt.src.has(`${al.folder}/${want}`) ? `${al.folder}/${want}` : String(want)) : ''
   const needId = () => { if (!id) throw new HttpError(400, 'missing design'); return id }
 
   if (p === '/api/board') return json(res, payload(rt)), true
@@ -656,6 +798,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (p === '/api/layout' && post) {
     for (const d of b.designs || []) if (rt.state.designs[d.id]) Object.assign(rt.state.designs[d.id], Object.fromEntries(Object.entries(d).filter(([k, v]) => (['x', 'y', 'w', 'h', 'width'].includes(k) && typeof v === 'number') || (k === 'title' && typeof v === 'string'))))
     if ((b.designs || []).some((d: { title?: string }) => typeof d.title === 'string')) broadcast(rt, { type: 'board', board: payload(rt) })
+    // real sizes (or a move) can push a design past its section's edge: the section grows to hold it
+    if ((b.designs || []).map((d: { id: string }) => fitSection(rt, d.id)).some(Boolean)) broadcast(rt, { type: 'items', items: rt.state.items || [] })
     saveState(rt)
     if (Array.isArray(b.from)) {
       const moves = (b.from as { id: string; x: number; y: number }[]).filter((f) => rt.state.designs[f.id]).map((f) => ({ id: f.id, from: { x: f.x, y: f.y }, to: { x: rt.state.designs[f.id].x, y: rt.state.designs[f.id].y } })).filter((m) => m.from.x !== m.to.x || m.from.y !== m.to.y)
@@ -721,6 +865,52 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     writePlan(rt)
     return json(res, { ok: true, id: rt.state.comments[rt.state.comments.length - 1]?.id }), true
   }
+  if (p === '/api/copy-design' && post) {
+    // a whole frame copied (⌘C on a frame) and pasted here: a new file beside the original's name. From another board,
+    // the files it links to (pictures, fonts) come along into this board's studio-assets/.
+    const fromBoard = String(b.fromBoard || rt.name), fromId = String(b.fromId || '')
+    const reg = readReg().find((r) => r.name === fromBoard)
+    if (!reg) throw new HttpError(404, `no such board: ${fromBoard}`)
+    const fromRoot = path.resolve(reg.root), fromAbs = path.resolve(fromRoot, fromId)
+    if (!fromAbs.startsWith(fromRoot + path.sep) || !fs.existsSync(fromAbs)) throw new HttpError(404, `no such design: ${fromId}`)
+    const sameBoard = fromRoot === path.resolve(rt.root)
+    const text0 = (sameBoard && rt.src.get(fromId)?.text) || fs.readFileSync(fromAbs, 'utf8')
+    // the new name: ads/<name> copy/index.html for a design in its own folder, <name> copy.html for a plain file
+    const parts = fromId.split('/'), file = parts.pop()!
+    const inFolder = /^index(-[\w]+)?\.html$/i.test(file) && parts.length > 0
+    const relOf = (n: number) => { const tag = n > 1 ? ` copy ${n}` : ' copy'; return inFolder ? [...parts.slice(0, -1), parts[parts.length - 1].replace(/ copy( \d+)?$/, '') + tag, file].join('/') : [...parts, file.replace(/\.html$/i, '').replace(/ copy( \d+)?$/, '') + tag + '.html'].join('/') }
+    let rel = relOf(1)
+    for (let i = 2; fs.existsSync(path.join(rt.root, rel)); i++) rel = relOf(i)
+    const abs = path.join(rt.root, rel)
+    const fromDir = path.dirname(fromAbs), toDir = path.dirname(abs)
+    const fix = (u: string): string => {
+      const raw = u.trim()
+      if (!relUrl(raw)) return u
+      const clean = decodeURIComponent(raw.split(/[?#]/)[0]), tail = raw.slice(raw.split(/[?#]/)[0].length)
+      const src = path.resolve(fromDir, clean)
+      if (!src.startsWith(fromRoot + path.sep) || !fs.existsSync(src) || !fs.statSync(src).isFile()) return u
+      let target = src
+      if (!sameBoard) {
+        const buf = fs.readFileSync(src), dir = path.join(rt.root, 'studio-assets')
+        fs.mkdirSync(dir, { recursive: true })
+        target = path.join(dir, hash(buf.toString('binary')) + path.extname(src).toLowerCase())
+        if (!fs.existsSync(target)) fs.writeFileSync(target, buf)
+      }
+      return path.relative(toDir, target).split(path.sep).map(encodeURIComponent).join('/') + tail
+    }
+    const text = text0
+      .replace(/(\s(?:src|href|poster)\s*=\s*)(["'])(.*?)\2/gi, (_m, a1, q1, u) => `${a1}${q1}${fix(u)}${q1}`)
+      .replace(/url\(\s*(&quot;|["']?)(.*?)\1\s*\)/gi, (_m, q1, u) => `url(${q1}${fix(u)}${q1})`)
+    fs.mkdirSync(toDir, { recursive: true })
+    fs.writeFileSync(abs, text)
+    const lay = sameBoard ? rt.state.designs[fromId] : undefined
+    const w = Number(b.w) || lay?.w || 1080, h = Number(b.h) || lay?.h || 1350
+    rt.state.designs[rel] = { x: Math.round(Number(b.x) || 0), y: Math.round(Number(b.y) || 0), w, h, ...(lay?.width ? { width: lay.width } : {}) }
+    await scan(rt, false, new Set([rel]))
+    saveState(rt)
+    broadcast(rt, { type: 'board', board: payload(rt) })
+    return json(res, { ok: true, design: rel }), true
+  }
   if (p === '/api/new' && post) {
     // From the board the name is free text: it becomes the title, and the file gets a safe name of its own.
     const title = typeof b.title === 'string' ? b.title.trim().slice(0, 200) : ''
@@ -769,7 +959,68 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     fs.writeFileSync(abs, buf)
     return json(res, { src: path.relative(id ? path.dirname(path.join(rt.root, id)) : path.join(rt.root, LOOSE), abs).split(path.sep).join('/'), path: path.relative(rt.root, abs).split(path.sep).join('/') }), true
   }
+  if (p === '/api/ai' && post) {
+    // remove background / edit / expand / erase a picture. The picture comes as a data URL (what is on screen); the
+    // result is saved under studio-assets/ and the tab is told how it is going over the socket while it waits.
+    const op = String(b.op) as AiOp
+    if (!['removebg', 'edit', 'expand', 'erase', 'upscale', 'fill'].includes(op)) throw new HttpError(400, 'unknown image tool')
+    const bytes = (d: unknown) => (typeof d === 'string' && d.includes(',') ? Buffer.from(d.slice(d.indexOf(',') + 1), 'base64') : undefined)
+    const image = bytes(b.image)
+    if (!image?.length) throw new HttpError(400, 'missing image')
+    const say = (text: string) => broadcast(rt, { type: 'ai', job: b.job, text })
+    try {
+      const r = await runAi(ROOT, rt.root, { op, image, marked: bytes(b.marked), prompt: b.prompt ? String(b.prompt) : undefined, aspect: b.aspect ? String(b.aspect) : undefined, model: b.model ? String(b.model) : undefined }, say)
+      const abs = path.join(rt.root, r.path)
+      return json(res, { ok: true, ...r, src: path.relative(id ? path.dirname(path.join(rt.root, id)) : path.join(rt.root, LOOSE), abs).split(path.sep).join('/') }), true
+    } catch (e) {
+      if (e instanceof AiError) throw new HttpError(422, e.message)
+      throw e
+    }
+  }
+  if (p === '/api/import-assets' && post) {
+    // a piece copied from another design (maybe on another board) refers to its files as /b/<board>/<path>: give back
+    // the path to use from this design, copying a file from another board's folder into this board's studio-assets/
+    const base = id ? path.dirname(path.join(rt.root, id)) : path.join(rt.root, LOOSE)
+    const map: Record<string, string> = {}
+    for (const u of Array.isArray(b.urls) ? b.urls.slice(0, 200) : []) {
+      const m = /^\/b\/([^/]+)\/(.+)$/.exec(String(u))
+      if (!m) continue
+      const reg = readReg().find((r) => r.name === decodeURIComponent(m[1]))
+      if (!reg) continue
+      const from = path.resolve(reg.root), abs = path.resolve(from, m[2].split('/').map(decodeURIComponent).join('/'))
+      if (!abs.startsWith(from + path.sep) || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) continue
+      let target = abs
+      if (from !== path.resolve(rt.root)) {
+        const buf = fs.readFileSync(abs), dir = path.join(rt.root, 'studio-assets')
+        fs.mkdirSync(dir, { recursive: true })
+        target = path.join(dir, hash(buf.toString('binary')) + path.extname(abs).toLowerCase())
+        if (!fs.existsSync(target)) fs.writeFileSync(target, buf)
+      }
+      map[String(u)] = path.relative(base, target).split(path.sep).join('/')
+    }
+    return json(res, { ok: true, map }), true
+  }
   if (p === '/api/export' && post) return json(res, await exportDesign(rt, needId(), b)), true
+  if (p === '/api/slices' && !post) return json(res, { slices: rt.state.slices?.[needId()] || [] }), true
+  if (p === '/api/slices' && post) {
+    const d = needId(), n = (v: unknown) => Math.round(Number(v) || 0)
+    const list: Slice[] = (Array.isArray(b.slices) ? b.slices : []).slice(0, 200)
+      .map((s: Slice, i: number) => ({ id: String(s.id || 's_' + crypto.randomBytes(3).toString('hex')).slice(0, 40), name: String(s.name || '').slice(0, 60), x: n(s.x), y: n(s.y), w: Math.max(1, n(s.w)), h: Math.max(1, n(s.h)), i }))
+      .map(({ i: _i, ...s }: Slice & { i: number }) => s)
+    rt.state.slices ??= {}
+    if (list.length) rt.state.slices[d] = list; else delete rt.state.slices[d]
+    saveState(rt)
+    broadcast(rt, { type: 'slices', design: d, slices: list, origin: b.from })
+    return json(res, { ok: true, slices: list.length }), true
+  }
+  if (p === '/api/export-slices' && post) return json(res, await exportSlices(rt, needId(), b)), true
+  if (p === '/api/reveal' && post) {
+    // show an export folder in Finder (only ever one under the exports folder)
+    const target = path.resolve(String(b.path || ''))
+    if (!target.startsWith(path.resolve(EXPORTS) + path.sep) || !fs.existsSync(target)) throw new HttpError(400, 'not an export folder')
+    execFile('/usr/bin/open', [target])
+    return json(res, { ok: true }), true
+  }
   if (p === '/api/export-all' && post) {
     const out = []
     const dir = b.out && !/\.(png|jpe?g|pdf)$/i.test(b.out) ? b.out : undefined
@@ -784,11 +1035,48 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   return false
 }
 
+/**
+ * What a board holds, for the hover preview in the board menu. Read from its saved state and a few file dates only:
+ * the board is not loaded or scanned, so hovering a closed board costs nothing.
+ */
+function previewOf(name: string) {
+  const reg = readReg().find((r) => r.name === name)
+  if (!reg) throw new HttpError(404, `no such board: ${name}`)
+  const sp = path.join(ROOT, 'boards', name, 'state.json')
+  const st: Partial<State> = boards.get(name)?.state || (fs.existsSync(sp) ? JSON.parse(fs.readFileSync(sp, 'utf8')) : {})
+  const mtime = (f: string) => { try { return fs.statSync(f).mtimeMs } catch { return 0 } }
+  const ids = Object.keys(st.designs || {}).filter((id) => !isLoose(id))
+  // the most recently changed designs show; a file that is gone is left out
+  const dated = ids.slice(0, 400).map((id) => ({ id, t: mtime(path.join(reg.root, id)) })).filter((d) => d.t)
+  dated.sort((a, b) => b.t - a.t)
+  const items = (st.items || []).filter((i) => i.kind !== 'arrow').slice(0, 300).map((i) => ({ kind: i.kind, x: i.x, y: i.y, w: i.w, h: i.h, rot: i.rot, text: (i.text || '').slice(0, 60), src: i.src }))
+  return {
+    name, root: reg.root, closed: !!reg.closed, exists: fs.existsSync(reg.root),
+    designCount: dated.length,
+    designs: dated.slice(0, 6).map((d) => ({ id: d.id, w: st.designs![d.id].w || 1080, h: st.designs![d.id].h || 1350 })),
+    items, comments: (st.comments || []).filter((c) => !c.resolved).length,
+    edited: Math.max(mtime(sp), dated[0]?.t || 0) || null,
+  }
+}
+/** /p/<board>/<path>: a board file for the preview, straight from the folder (the board is not loaded). */
+function servePreviewFile(res: http.ServerResponse, url: URL) {
+  const parts = url.pathname.split('/').slice(2).map(decodeURIComponent)
+  const reg = readReg().find((r) => r.name === parts[0])
+  if (!reg) throw new HttpError(404, 'no such board')
+  const root = path.resolve(reg.root), abs = path.resolve(root, parts.slice(1).join('/'))
+  if (!abs.startsWith(root + path.sep)) throw new HttpError(403, 'outside the board')
+  const type = MIME[path.extname(abs).toLowerCase()]
+  if (!type || type.startsWith('video/') || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new HttpError(404, 'not found')
+  res.writeHead(200, { 'content-type': type, 'cache-control': 'max-age=60' })
+  fs.createReadStream(abs).on('error', () => res.destroy()).pipe(res)
+}
+
 /** /b/<board>/<path>: the board folder, served so relative links in the designs just work. */
 async function serveBoardFile(res: http.ServerResponse, url: URL) {
   const parts = url.pathname.split('/').slice(2).map(decodeURIComponent)
-  const rt = await load(parts.shift() || '')
-  const rel = parts.join('/')
+  const asked = parts.shift() || '', al = aliasOf(asked)
+  const rt = await load(asked)
+  const rel = (al ? [al.folder, ...parts] : parts).join('/')
   const abs = path.resolve(rt.root, rel)
   if (abs !== rt.root && !abs.startsWith(rt.root + path.sep)) throw new HttpError(403, 'outside the board')
   const type = MIME[path.extname(abs).toLowerCase()]
@@ -812,12 +1100,31 @@ async function serveBoardFile(res: http.ServerResponse, url: URL) {
   fs.createReadStream(abs).on('error', () => res.destroy()).pipe(res) // a synced folder can fail a read after the exists check
 }
 
-const vite = await createVite({ root: APP_DIR, appType: 'spa', server: { middlewareMode: true, hmr: { port: PORT + 1 } }, logLevel: 'warn' })
+const vite = await createVite({ root: APP_DIR, appType: 'spa', server: { middlewareMode: true, hmr: { port: PORT + 1 }, allowedHosts: ['.ts.net'] }, logLevel: 'warn' })
 
-const server = http.createServer(async (req, res) => {
+const handle = async (req: http.IncomingMessage, res: http.ServerResponse) => {
   const url = new URL(req.url || '/', `http://127.0.0.1:${PORT}`)
   try {
     if (url.pathname.startsWith('/b/')) return await serveBoardFile(res, url)
+    if (url.pathname.startsWith('/p/')) return servePreviewFile(res, url)
+    if (url.pathname === '/api/preview') return json(res, previewOf(url.searchParams.get('board') || ''))
+    // Higgsfield through the subscription: sign in once in the browser (OAuth), Studio keeps the token in settings.json
+    if (url.pathname === '/api/higgsfield') return json(res, hfmcp.status(ROOT))
+    if (url.pathname === '/api/higgsfield/signout' && req.method === 'POST') { hfmcp.signOut(ROOT); return json(res, { ok: true }) }
+    if (url.pathname === '/oauth/higgsfield/start') {
+      res.writeHead(302, { location: await hfmcp.signInUrl(ROOT, `http://127.0.0.1:${PORT}/oauth/higgsfield`) }); res.end(); return
+    }
+    if (url.pathname === '/oauth/higgsfield') {
+      const q = url.searchParams
+      const page = (title: string, body: string) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(`<!doctype html><meta charset=utf-8><title>${title}</title><body style="font:15px system-ui;background:#2c2c2c;color:#f2f2f2;display:grid;place-items:center;height:90vh"><div style="max-width:440px;text-align:center"><h2>${title}</h2><p style="color:#bbb">${body}</p></div><script>try{window.opener&&window.opener.postMessage({higgsfield:${JSON.stringify(title)}},'*')}catch(e){}</script>`) }
+      if (q.get('error')) return page('Not connected', String(q.get('error_description') || q.get('error')).replace(/</g, '&lt;'))
+      try {
+        await hfmcp.finishSignIn(ROOT, q.get('code') || '', q.get('state') || '')
+        // what the server offers, for whoever wires the tools (kept beside settings.json)
+        hfmcp.listTools(ROOT).then((t) => fs.writeFileSync(path.join(ROOT, 'higgsfield-tools.json'), JSON.stringify(t, null, 1))).catch((e) => console.error('higgsfield tools:', (e as Error).message))
+        return page('Higgsfield is connected', 'Studio can now use your Higgsfield plan. You can close this tab.')
+      } catch (e) { return page('Not connected', String((e as Error).message).replace(/</g, '&lt;')) }
+    }
     if (url.pathname.startsWith('/api/')) {
       if (await api(req, res, url)) return
       throw new HttpError(404, 'unknown endpoint')
@@ -827,12 +1134,13 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) json(res, { ok: false, error: (e as Error).message }, status)
     else res.end()
     return
-  }
+  } finally { release(res) }
   vite.middlewares(req, res)
-})
+}
+const server = http.createServer(handle)
 
 const wss = new WebSocketServer({ noServer: true })
-server.on('upgrade', (req, socket, head) => {
+const upgrade = (req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => {
   const url = new URL(req.url || '/', `http://127.0.0.1:${PORT}`)
   if (url.pathname !== '/ws') return
   wss.handleUpgrade(req, socket, head, async (ws) => {
@@ -848,7 +1156,40 @@ server.on('upgrade', (req, socket, head) => {
     })
     ws.on('close', () => rt.clients.delete(ws))
   })
-})
+}
+server.on('upgrade', upgrade)
+
+/**
+ * Review from the phone: Studio also answers on this Mac's Tailscale address (only your own devices can reach it, never
+ * the Wi-Fi or the internet). What comes in that way can look at boards and leave comments, nothing else: no edits,
+ * no AI, no files, no settings.
+ */
+const REVIEW_GET = new Set(['/api/boards', '/api/board', '/api/config', '/api/health', '/api/comments', '/api/preview'])
+function reviewOk(req: http.IncomingMessage): boolean {
+  const p = new URL(req.url || '/', 'http://x').pathname
+  if (req.method === 'POST') return p === '/api/comments'
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false
+  if (p.startsWith('/oauth/') || p.startsWith('/api/higgsfield')) return false
+  return !p.startsWith('/api/') || REVIEW_GET.has(p)
+}
+function tailscaleIp(): string | null {
+  for (const exe of ['/usr/local/bin/tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale']) {
+    try { const ip = execFileSync(exe, ['ip', '-4'], { timeout: 5000, encoding: 'utf8' }).trim().split(/\s+/)[0]; if (ip?.startsWith('100.')) return ip } catch { /* not this one */ }
+  }
+  return null
+}
+function serveReview() {
+  if (process.env.STUDIO_NO_TAILSCALE) return
+  const ip = tailscaleIp()
+  if (!ip) { setTimeout(serveReview, 30_000); return } // Tailscale is off: look again later
+  const rs = http.createServer((req, res) => {
+    if (reviewOk(req)) return void handle(req, res)
+    res.writeHead(403, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'review only: from the phone you can look and comment' }))
+  })
+  rs.on('upgrade', upgrade)
+  rs.on('error', () => setTimeout(serveReview, 30_000)) // the address changed or is busy: try again later
+  rs.listen(PORT, ip, () => console.log(`Review (phone) http://${ip}:${PORT}`))
+}
 
 // One bad request or file read must not take the editor down mid-session (edits made while it is down are lost).
 process.on('uncaughtException', (e) => console.error('uncaught:', e))
@@ -856,10 +1197,11 @@ server.on('error', (e) => { console.error(e); process.exit(1) }) // but a server
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Studio  http://127.0.0.1:${PORT}`)
   console.log(`State          ${ROOT}`)
+  serveReview()
 })
 
 const shutdown = async () => {
-  for (const rt of boards.values()) if (rt.saveTimer) { clearTimeout(rt.saveTimer); fs.writeFileSync(path.join(rt.dir, 'state.json'), JSON.stringify(rt.state, null, 1)) }
+  for (const rt of boards.values()) flush(rt)
   try { (await browserP)?.close() } catch { /* already gone */ }
   process.exit(0)
 }

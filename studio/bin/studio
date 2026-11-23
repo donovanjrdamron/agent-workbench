@@ -17,19 +17,22 @@ A board is a folder of HTML files (ads, emails, carousels). Each file is one fra
 You design by writing HTML exactly as usual. Saving a file updates the canvas within 2 seconds.
 the user tweaks elements by hand; their tweaks are written into your file as inline styles and text.
 
-  studio boards                              list boards and their folders
+  studio boards                              list boards and their folders (and which are closed)
   studio board add <name> <folder>           put a folder of HTML designs on the canvas
   studio board rm <name>                     take it off (files are untouched)
+  studio board close <name>                  put it away: off the switcher, not loaded or watched. Nothing is deleted,
+                                             and every command here still works on it by name.
+  studio board open <name>                   bring a closed board back
   studio designs <board>                     every design file, its size and open comments
   studio plan <board>                        the whole board in plain language: sections, steps in arrow order,
                                              notes on pictures/videos (with file paths), links, designs, comments.
                                              Read it before planning a task that has a board.
 
 Before you edit a design the user has touched:
-  studio changes <board> [design]            what they changed since your last write, element by element
+  studio changes <board> [design]            what the user changed since your last write, element by element
   studio diff <board> [design]               the same as a diff of your file
   studio comments <board> [design] [--all]   notes they pinned on the canvas, with the element under each
-  studio selection                           the element they have selected right now, with file and line
+  studio selection                           the element the user has selected right now, with file and line
 
 Working:
   studio tree <board> <design>               outline of a file: line, element, text, inline style
@@ -109,13 +112,15 @@ async function main() {
     case 'boards': {
       const r = await call('GET', '/api/boards')
       if (!r.boards.length) return console.log('No boards yet. Add one: studio board add <name> <folder>')
-      for (const b of r.boards) console.log(`${b.name}${b.exists ? '' : '  (folder missing)'}\n    ${b.root}`)
+      for (const b of r.boards) console.log(`${b.name}${b.closed ? '  (closed)' : ''}${b.loaded ? `  (in memory${b.viewers ? `, showing in ${b.viewers} editor tab${b.viewers > 1 ? 's' : ''}` : ''})` : ''}${b.exists ? '' : '  (folder missing)'}\n    ${b.root}`)
       return
     }
     case 'board': {
       if (pos[0] === 'add') { const r = await call('POST', '/api/boards', { name: need(pos[1], 'name'), root: path.resolve(need(pos[2], 'folder')) }); return console.log(`added "${r.name}" with ${r.designs} designs\n${BASE}/?board=${encodeURIComponent(r.name)}`) }
       if (pos[0] === 'rm') { await call('POST', '/api/boards', { remove: need(pos[1], 'name') }); return console.log('removed') }
-      throw new Error('use: studio board add <name> <folder> | studio board rm <name>')
+      if (pos[0] === 'close') { await call('POST', '/api/boards', { close: need(pos[1], 'name') }); return console.log(`closed "${pos[1]}". Reopen: studio board open "${pos[1]}"`) }
+      if (pos[0] === 'open') { await call('POST', '/api/boards', { open: need(pos[1], 'name') }); return console.log(`opened "${pos[1]}"\n${BASE}/?board=${encodeURIComponent(pos[1])}`) }
+      throw new Error('use: studio board add <name> <folder> | studio board rm <name> | studio board close <name> | studio board open <name>')
     }
     case 'designs': {
       const b = await call('GET', `/api/board?${q({ board: need(board, 'board') })}`)

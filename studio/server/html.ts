@@ -203,10 +203,11 @@ export function lint(source: string): { level: 'fix' | 'note'; msg: string }[] {
   const css = (source.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || []).join('\n')
   const inline = els.map((e) => e.attrs.style?.value || '').join('\n')
   if (!art) out.push({ level: 'note', msg: 'No .ad (or data-artboard) element: the board treats this as a flow page. Text, colours and images are editable, positions are not.' })
+  if (!art && !/<meta[^>]+name=["']studio:width["']/i.test(source)) out.push({ level: 'fix', msg: 'Page without <meta name="studio:width" content="…">: the board shows it 1200px wide and exports it at that width. Emails: content="600" (the width of the email itself).' })
   const scripts = els.filter((e) => e.tag === 'script' && !e.attrs.src?.value?.includes('fonts'))
   if (scripts.length) out.push({ level: 'fix', msg: `<script> at line ${scripts[0].line}: anything it creates cannot be selected or edited on the board. Write the final HTML out instead.` })
   const pseudo = (css.match(/::?(before|after)\s*\{[^}]*content\s*:\s*(?!["']\s*["']|none|normal)[^;}]+/gi) || []).length
-  if (pseudo) out.push({ level: 'fix', msg: `${pseudo} ::before/::after rule${pseudo > 1 ? 's' : ''} with visible content: pseudo-elements cannot be selected. Use a real element for anything they may want to move or change.` })
+  if (pseudo) out.push({ level: 'fix', msg: `${pseudo} ::before/::after rule${pseudo > 1 ? 's' : ''} with visible content: pseudo-elements cannot be selected. Use a real element for anything the user may want to move or change.` })
   // a backdrop on the artboard (or body) itself is fine; pictures on anything else should be <img>
   const bgRules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => /background(-image)?\s*:[^;}]*url\(/i.test(m[2]) && !/^\s*(\.ad|body|html|\[data-artboard\])\s*$/.test(m[1].split(',')[0]))
   const bgInline = els.filter((e) => e.sid !== art?.sid && e.tag !== 'body' && /background(-image)?\s*:[^;]*url\(/i.test(e.attrs.style?.value || ''))
@@ -230,9 +231,9 @@ export function lint(source: string): { level: 'fix' | 'note'; msg: string }[] {
     const wrappers = kids.filter((k) => count(k.sid) > 20)
     for (const w of wrappers) out.push({ level: 'fix', msg: `line ${w.line} ${describe(w).replace(/ \(line \d+\)$/, '')}: holds ${count(w.sid)} elements, so the board treats it as background. Keep groups small (20 or fewer) or put the pieces directly in .ad.` })
     const unnamed = kids.filter((k) => !k.attrs.class && !k.attrs.id && k.tag !== 'svg')
-    if (unnamed.length) out.push({ level: 'note', msg: `${unnamed.length} top-level element${unnamed.length > 1 ? 's have' : ' has'} no class (first at line ${unnamed[0].line}). Class names are the layer names they sees: name them (headline, hero, badge).` })
+    if (unnamed.length) out.push({ level: 'note', msg: `${unnamed.length} top-level element${unnamed.length > 1 ? 's have' : ' has'} no class (first at line ${unnamed[0].line}). Class names are the layer names the user sees: name them (headline, hero, badge).` })
     const offEdge = kids.filter((k) => /(^|;)\s*(right|bottom)\s*:/i.test(k.attrs.style?.value || ''))
-    if (offEdge.length) out.push({ level: 'note', msg: `${offEdge.length} element${offEdge.length > 1 ? 's are' : ' is'} placed with right/bottom (first at line ${offEdge[0].line}). left + top make their drags save as clean left/top values instead of a translate.` })
+    if (offEdge.length) out.push({ level: 'note', msg: `${offEdge.length} element${offEdge.length > 1 ? 's are' : ' is'} placed with right/bottom (first at line ${offEdge[0].line}). left + top make the user's drags save as clean left/top values instead of a translate.` })
     if (/\.ad\s*>\s*\*\s*\{[^}]*position\s*:\s*absolute/i.test(css) === false && kids.some((k) => !/position\s*:/.test(k.attrs.style?.value || '')) && !/position\s*:\s*absolute/i.test(css))
       out.push({ level: 'note', msg: 'Top-level elements are not absolutely positioned. Add `.ad>*{position:absolute}` so each piece moves independently.' })
   }

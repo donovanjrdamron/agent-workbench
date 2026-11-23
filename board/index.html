@@ -139,12 +139,43 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .adot.waiting{background:rgb(223,171,1)}
 .adot.ended{background:var(--faint)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.ag{border:1px solid var(--line);border-radius:8px;margin:14px 0 4px;overflow:hidden}
-.ag-head{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);font-size:13px}
-.ag-state{font-weight:600}
-.ag-title{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
-.ag-open{font-size:12px;color:var(--muted);padding:2px 8px;border-radius:4px;border:1px solid var(--line);flex-shrink:0}
+.ag{border:1px solid var(--line);border-radius:12px;margin:14px 0 4px;position:relative}
+.ag-head{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 6px;border-bottom:1px solid var(--line);font-size:13px}
+.ag-pick{display:flex;align-items:center;gap:7px;min-width:0;flex:0 1 auto;margin-right:auto;padding:4px 8px;border-radius:6px;text-align:left}
+.ag-pick:hover,.ag-pick.on{background:var(--hover)}
+.ag-pick .ag-title{color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ag-pick .chev{color:var(--faint);flex-shrink:0}
+.ag-open{font-size:12px;color:var(--muted);padding:3px 8px;border-radius:6px;flex-shrink:0}
 .ag-open:hover{background:var(--hover)}
+.ag-menu{position:absolute;left:6px;top:42px;z-index:4;width:min(340px,calc(100% - 12px));max-height:300px;overflow-y:auto;background:var(--bg);border-radius:10px;box-shadow:var(--peek-shadow);padding:4px}
+.ag-mi{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:6px;text-align:left}
+.ag-mi:hover{background:var(--hover)}
+.ag-mi .mt{flex:1;min-width:0}
+.ag-mi .mt b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-mi .mt span{display:block;font-size:12px;color:var(--faint)}
+.ag-mi .ck{color:var(--accent);width:14px;flex-shrink:0;text-align:center}
+.ag-st{width:14px;height:14px;display:grid;place-items:center;flex-shrink:0}
+.ag-st .adot{width:7px;height:7px}
+.ready{font-size:11.5px;line-height:18px;padding:0 6px;border-radius:3px;background:var(--pill-green-bg);color:var(--pill-green-fg);white-space:nowrap}
+.cspin{display:inline-flex}.cspin .spin{width:12px;height:12px;color:var(--muted)}
+.worksep{display:flex;align-items:center;gap:8px;color:var(--faint);font-size:11.5px;margin:6px 2px 0}
+.worksep::before,.worksep::after{content:"";flex:1;height:1px;background:var(--line)}
+.ag-send{position:relative}
+.ag-cmds{position:absolute;left:0;right:0;bottom:calc(100% + 6px);z-index:4;max-height:280px;overflow-y:auto;background:var(--bg);border-radius:10px;box-shadow:var(--peek-shadow);padding:4px}
+.ag-cmd{display:flex;gap:10px;align-items:baseline;width:100%;padding:6px 8px;border-radius:6px;text-align:left;font-size:13px}
+.ag-cmd.on{background:var(--hover)}
+.ag-cmd b{font-weight:500;white-space:nowrap}
+.ag-cmd span{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.ag-cmd i{font-style:normal;color:var(--faint);font-size:11px;flex-shrink:0}
+.ag-rename{flex:1;min-width:0;font:inherit;font-weight:500;color:var(--text);background:var(--bg);border:1px solid var(--accent);border-radius:5px;padding:1px 6px;outline:none}
+.adot.online{background:rgb(45,170,100)}
+.ag-mi.off{opacity:.5}.ag-mi.off:hover{opacity:.85}
+.ag-off{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 8px 8px;padding:10px 12px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);font-size:13px}
+.ag-on{background:var(--text);color:var(--bg);border-radius:8px;padding:5px 12px;font-weight:500;flex-shrink:0}
+.ag-on:disabled{opacity:.5}
+.ag-go.stop svg{display:none}.ag-go.stop::after{content:"";width:9px;height:9px;border-radius:2px;background:currentColor}
+.spin{width:13px;height:13px;color:var(--accent);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .ag-msgs{max-height:340px;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .ag-m{font-size:13.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;padding:7px 10px;border-radius:8px;max-width:92%}
 .ag-m.claude{background:var(--hover);align-self:flex-start}
@@ -159,12 +190,44 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .md pre code{background:none;padding:0}
 .md a{color:var(--accent)} .md hr{border:0;border-top:1px solid var(--line);margin:8px 0}
 .ag-m code{font:12px ui-monospace,Menlo,monospace;background:rgba(135,131,120,.15);padding:1px 4px;border-radius:3px}
-.ag-send{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line)}
-.ag-send textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit;font-size:14px;background:var(--bg);color:var(--text);outline:none;max-height:160px}
-.ag-send textarea:focus{border-color:var(--accent)}
-.ag-send button{background:var(--accent);color:#fff;border-radius:6px;padding:0 14px;font-weight:500}
-.ag-send button:disabled{opacity:.5}
+.ag-send{margin:0 8px 8px;border:1px solid var(--line);border-radius:12px;background:var(--bg);box-shadow:0 1px 3px rgba(15,15,15,.05);padding:10px 10px 6px 12px}
+.ag-send:focus-within{border-color:color-mix(in srgb,var(--text) 22%,transparent)}
+.ag-send textarea{display:block;width:100%;resize:none;border:0;padding:0;font:inherit;font-size:14px;line-height:1.45;background:none;color:var(--text);outline:none;max-height:160px;min-height:21px}
+.ag-send textarea::placeholder{color:var(--faint)}
+.ag-tools{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+.ag-clip{color:var(--faint);padding:4px;margin-left:-4px;border-radius:6px;display:flex}
+.ag-clip:hover{color:var(--muted);background:var(--hover)}
+.ag-go{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--text);color:var(--bg);transition:opacity .15s}
+.ag-go:disabled{background:var(--line);color:var(--faint);cursor:default}
+.ag.dropping{outline:2px dashed var(--accent);outline-offset:-2px}
 @media (max-width:700px){ .ag-send textarea{font-size:16px} .ag-open{display:none !important} }
+/* Studio boards tab: a tile per board with a small picture of what is on it */
+.sb-sec{font-size:12px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;margin:22px 2px 10px}
+.sb-sec:first-child{margin-top:8px}
+.sb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.sb{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:pointer;text-decoration:none;color:inherit;position:relative;min-width:0}
+.sb:hover{border-color:var(--faint)}
+.sb .pv{height:140px;background:var(--hover);display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;overflow:hidden;pointer-events:none;border-bottom:1px solid var(--line)}
+.sb .pv .th{position:relative;flex-shrink:0;overflow:hidden;border-radius:3px;background:#fff;box-shadow:0 0 0 1px rgba(128,128,128,.25)}
+.sb .pv .th iframe{border:0;transform-origin:0 0;position:absolute;top:0;left:0}
+.sb .pv svg{width:100%;height:100%}
+.sb .pv .m-sec{fill:none;stroke:var(--faint);stroke-opacity:.5}
+.sb .pv .m-box{fill:var(--muted);fill-opacity:.28}
+.sb .pv .m-t{fill:var(--muted)}
+.sb .pv .none{color:var(--faint);font-size:12px}
+.sb .info{padding:9px 11px 10px;min-width:0}
+.sb .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb .cd{color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb .gone{color:rgb(212,76,71)}
+.sb .acts{position:absolute;top:6px;right:6px;display:flex;gap:4px}
+.sb .acts button{display:flex;padding:5px;border-radius:6px;border:0;cursor:pointer;background:var(--bg,#fff);color:var(--muted);opacity:0;box-shadow:0 0 0 1px var(--line)}
+.sb:hover .acts button,.sb .acts .star.on{opacity:1}
+.sb .acts .star.on{color:rgb(223,171,1)}
+.sb .acts .del:hover{color:rgb(212,76,71)}
+.sb-empty{color:var(--faint);padding:20px 6px}
+.sb-more{margin:20px 2px;padding:8px 14px;border-radius:6px;border:1px solid var(--line);background:none;color:inherit;font:inherit;cursor:pointer}
+.sb-more:hover{background:var(--hover)}
+@media (max-width:700px){ .sb .acts button{opacity:1} .sb-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px} .sb .pv{height:110px} }
 .steps-mini{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px}
 .bar{width:40px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
 .bar i{display:block;height:100%;background:rgb(45,153,100)}
@@ -258,7 +321,7 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
   <div class="viewbar">
     <div class="tabs">
       <button class="tab on" data-v="board">Board</button>
-      <button class="tab" data-v="brand">Brands</button>
+      <button class="tab" data-v="studio">Studio</button>
     </div>
     <div class="filters" id="filters"></div>
     <button class="newbtn" id="newbtn">New</button>
@@ -387,15 +450,16 @@ function cardHTML(c){
   const n = c.steps?.length||0, d = (c.steps||[]).filter(s=>s.done).length;
   return `<div class="card ${c.status==="Done"?"done":""}" draggable="true" data-id="${c.id}">
     <div class="t">${esc(c.title)||''}</div>
-    <div class="meta">${tag(c.brand)}${agents[c.id]?`<span class="adot ${agents[c.id].state}" title="${agents[c.id].state==="waiting"?"Claude is waiting on you":"Claude is working"}"></span>`:""}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
+    <div class="meta">${tag(c.brand)}${c.ready && c.status!=="Done"?`<span class="ready" title="The agent thinks this is finished. Move it to Done when you agree.">Ready for review</span>`:""}${agents[c.id]?.state==="working"?`<span class="cspin" title="An agent is working on this">${SPIN}</span>`:""}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
   </div>`;
 }
 
 /* ---------- views ---------- */
 function render(){
   renderFilters();
+  $("#filters").style.visibility = view === "studio" ? "hidden" : "";
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.v===view));
-  view === "board" ? renderBoard() : renderBrand();
+  view === "studio" ? renderStudio() : renderBoard();
   if(openId) renderPeek();
 }
 let hideDone = (() => { try { return localStorage.getItem("hideDone") === "1"; } catch(e) { return false; } })();
@@ -404,11 +468,14 @@ const EYE_ON = `<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 8s2.
 function renderBoard(){
   const cards = visible();
   $("#view").innerHTML = `<div class="board">${STATUSES.map(s=>{
-    const list = cards.filter(c=>c.status===s).sort(byOrder);
+    const all = cards.filter(c=>c.status===s).sort(byOrder);
+    const busy = c => agents[c.id]?.state === "working";
+    const list = [...all.filter(c=>!busy(c)), ...all.filter(busy)];   // cards an agent is working on sink to the bottom
+    const nBusy = all.filter(busy).length;
     const hidden = s === "Done" && hideDone;
     return `<div class="col ${s==="Deep focus" && list.length>1 ? "overload" : ""} ${hidden ? "collapsed" : ""}" data-s="${s}">
       <div class="colhead"><span class="pill ${PILL[s]}">${s}</span>${s==="Done" ? `<button class="eyebtn" title="${hidden?"Show":"Hide"} done tasks">${hidden?EYE_ON:EYE_OFF}</button>` : ""}</div>
-      <div class="cards">${hidden ? "" : list.map(cardHTML).join("")}</div></div>`;
+      <div class="cards">${hidden ? "" : list.map((c, i) => (nBusy && nBusy < list.length + 1 && i === list.length - nBusy ? `<div class="worksep">Working</div>` : "") + cardHTML(c)).join("")}</div></div>`;
   }).join("")}</div>`;
   const eb = document.querySelector(".eyebtn");
   if (eb) eb.onclick = () => { hideDone = !hideDone; try { localStorage.setItem("hideDone", hideDone ? "1" : "0"); } catch(e) {} renderLists(); };
@@ -416,16 +483,92 @@ function renderBoard(){
   document.querySelectorAll(".addcard").forEach(b => b.onclick = () => newCard(b.dataset.s));
   document.querySelectorAll(".col").forEach(bindCol);
 }
-function renderBrand(){
-  const cards = visible();
-  const brands = filter ? [filter] : [...board.brands, ...(cards.some(c=>!c.brand)?[""]:[])];
-  $("#view").innerHTML = brands.map(b=>{
-    const list = cards.filter(c=>(c.brand||"")===b && !(hideDone && c.status==="Done")).sort((x,y)=>STATUSES.indexOf(x.status)-STATUSES.indexOf(y.status)||byOrder(x,y));
-    return `<div class="group"><h3>${b?tag(b):"No brand"}</h3>
-      ${list.map(c=>`<div class="row" data-id="${c.id}"><span class="t">${esc(c.title)||"Untitled"}</span><span class="pill ${PILL[c.status]}">${c.status}</span></div>`).join("")}</div>`;
-  }).join("");
-  document.querySelectorAll(".row").forEach(r => r.onclick = () => openPeek(r.dataset.id));
-  document.querySelectorAll(".addcard").forEach(btn => btn.onclick = () => newCard("Next", btn.dataset.b));
+/* ---------- Studio boards: pinned first, then newest ---------- */
+let studioBoards = null;
+const STAR = on => `<svg viewBox="0 0 16 16" width="15" height="15"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z" fill="${on?"currentColor":"none"}" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
+function ago(t){ const s = Date.now()/1000 - t; if(s < 3600) return "just now"; if(s < 86400) return Math.floor(s/3600)+"h ago"; if(s < 86400*30) return Math.floor(s/86400)+"d ago";
+  return new Date(t*1000).toLocaleDateString(undefined,{month:"short",day:"numeric"}); }
+async function loadStudio(){
+  try{ studioBoards = (await (await fetch("/api/studio-boards")).json()).boards; }catch(e){ studioBoards = studioBoards || []; }
+  if(view === "studio") renderStudio();
+}
+let studioAll = false;                 // only pinned boards draw until "Show all" is pressed (per visit)
+const sbPreviews = new Map();          // board name -> what is on it (asked for once, when its tile is first on screen)
+const TRASH = `<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.2h10.4M6.2 4.2V2.8h3.6v1.4M4.2 4.2l.6 9h6.4l.6-9M6.7 6.8v4M9.3 6.8v4"/></svg>`;
+function sbPreviewHtml(b, p){
+  if(!p) return `<span class="none">No preview</span>`;
+  const base = new URL(b.url).origin, file = rel => `${base}/p/${encodeURIComponent(b.name)}/${rel.split("/").map(encodeURIComponent).join("/")}`;
+  if(p.designs && p.designs.length){
+    const H = 124, ds = p.designs.slice(0, p.designs[0].w > p.designs[0].h * 1.4 ? 1 : 3), maxW = (212 - 6 * (ds.length - 1)) / ds.length;   // all of them fit side by side in the tile
+    return ds.map(d => { const k = Math.min(H / d.h, maxW / d.w);
+      return `<div class="th" style="width:${d.w*k}px;height:${d.h*k}px"><iframe src="${esc(file(d.id))}" sandbox="allow-same-origin" loading="lazy" tabindex="-1" style="width:${d.w}px;height:${d.h}px;transform:scale(${k})"></iframe></div>`; }).join("");
+  }
+  const items = p.items || [];
+  if(!items.length) return `<span class="none">Nothing on this board</span>`;
+  const x0 = Math.min(...items.map(i => i.x)), y0 = Math.min(...items.map(i => i.y)), x1 = Math.max(...items.map(i => i.x+i.w)), y1 = Math.max(...items.map(i => i.y+i.h));
+  const W = Math.max(1, x1-x0), Hh = Math.max(1, y1-y0), fs = Math.max(W, Hh*1.6)/30;
+  const one = it => {
+    const tr = it.rot ? ` transform="rotate(${it.rot} ${it.x+it.w/2} ${it.y+it.h/2})"` : "";
+    if(it.kind === "section") return `<rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" rx="${W/150}" class="m-sec" stroke-width="${W/400}"/>`;
+    if(it.kind === "image" && it.src) return `<image href="${esc(file(it.src))}" x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" preserveAspectRatio="xMidYMid slice"${tr}/>`;
+    if(it.kind === "text") return `<text x="${it.x}" y="${it.y+fs}" font-size="${fs}" class="m-t"${tr}>${esc((it.text||"").slice(0,28))}</text>`;
+    return `<rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" rx="${W/200}" class="m-box"${tr}/>`;
+  };
+  return `<svg viewBox="${x0} ${y0} ${W} ${Hh}" preserveAspectRatio="xMidYMid meet">${items.filter(i=>i.kind==="section").map(one).join("")}${items.filter(i=>i.kind!=="section").map(one).join("")}</svg>`;
+}
+function sbCount(p){
+  if(!p) return "";
+  const notes = (p.items||[]).filter(i => i.kind === "box" || i.kind === "text").length, media = (p.items||[]).filter(i => i.kind === "image" || i.kind === "video").length;
+  return [p.designCount && `${p.designCount} design${p.designCount===1?"":"s"}`, notes && `${notes} note${notes===1?"":"s"}`, media && `${media} picture${media===1?"":"s"}`].filter(Boolean).join(" · ");
+}
+function sbFill(el){
+  const b = studioBoards.find(x => x.name === el.dataset.n); if(!b) return;
+  const put = p => { el.querySelector(".pv").innerHTML = sbPreviewHtml(b, p); const n = sbCount(p); if(n) el.querySelector(".ct").textContent = n + " · "; };
+  if(sbPreviews.has(b.name)) return put(sbPreviews.get(b.name));
+  fetch("/api/studio-preview?board=" + encodeURIComponent(b.name)).then(r => r.ok ? r.json() : null).catch(() => null)
+    .then(p => { sbPreviews.set(b.name, p); if(el.isConnected) put(p); });
+}
+let sbSeen = null;
+function renderStudio(){
+  if(!studioBoards){ $("#view").innerHTML = `<div class="sb-empty">Loading…</div>`; loadStudio(); return; }
+  const tile = b => {
+    const c = b.cards[0];
+    const card = c ? esc(c.title) + (c.status === "Done" ? " · done" : "") + (b.cards.length > 1 ? ` +${b.cards.length-1}` : "") : "";
+    return `<a class="sb" href="${esc(b.url)}" target="_blank" rel="noopener" data-n="${esc(b.name)}" title="${esc(b.name)}${card ? " — " + card : ""}">
+      <div class="pv"></div>
+      <div class="info"><div class="nm">${esc(b.name)}</div>
+        <div class="cd"><span class="ct"></span>${b.exists ? "" : `<span class="gone">folder missing · </span>`}${ago(b.updated)}</div></div>
+      <div class="acts"><button class="star ${b.kept?"on":""}" title="${b.kept?"Unpin":"Pin: always shown here"}">${STAR(b.kept)}</button><button class="del" title="Delete this board">${TRASH}</button></div></a>`;
+  };
+  const pinned = studioBoards.filter(b => b.kept), rest = studioBoards.filter(b => !b.kept);
+  const showRest = studioAll || !pinned.length;
+  $("#view").innerHTML = !studioBoards.length ? `<div class="sb-empty">No Studio boards yet.</div>` :
+    (pinned.length ? `<div class="sb-sec">Permanent</div><div class="sb-grid">${pinned.map(tile).join("")}</div>` : "") +
+    (showRest ? (rest.length ? `<div class="sb-sec">${pinned.length ? "Everything else" : "All boards"}</div><div class="sb-grid">${rest.map(tile).join("")}</div>` : "")
+              : (rest.length ? `<button class="sb-more">Show all boards (${rest.length} more)</button>` : ""));
+  const more = document.querySelector(".sb-more"); if(more) more.onclick = () => { studioAll = true; renderStudio(); };
+  if(sbSeen) sbSeen.disconnect();
+  sbSeen = new IntersectionObserver(es => es.forEach(e => { if(e.isIntersecting){ sbSeen.unobserve(e.target); sbFill(e.target); } }), {rootMargin: "200px"});
+  document.querySelectorAll(".sb").forEach(el => sbSeen.observe(el));
+  document.querySelectorAll(".sb .del").forEach(d => d.onclick = async e => {
+    e.preventDefault(); e.stopPropagation();
+    const name = d.closest(".sb").dataset.n;
+    if(!confirm(`Delete the board "${name}" from Studio?\n\nIt disappears from every board list. The files in its folder are not touched.`)) return;
+    try{
+      const r = await fetch("/api/studio-delete", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({board: name})});
+      if(!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Studio is not answering");
+      studioBoards = studioBoards.filter(x => x.name !== name); renderStudio();
+    }catch(err){ alert("Couldn't delete it: " + err.message); }
+  });
+  document.querySelectorAll(".sb .star").forEach(st => st.onclick = async e => {
+    e.preventDefault(); e.stopPropagation();
+    const name = st.closest(".sb").dataset.n, b = studioBoards.find(x => x.name === name), keep = !b.kept;
+    b.kept = keep;                                   // show it right away, then ask the server for the real order
+    studioBoards = [...studioBoards.filter(x => x.kept && x !== b), ...(keep ? [b] : []), ...studioBoards.filter(x => !x.kept)];
+    renderStudio();
+    try{ await fetch("/api/kept", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({board: name, keep})}); }catch(e){}
+    loadStudio();
+  });
 }
 
 /* ---------- drag & drop ---------- */
@@ -610,7 +753,7 @@ function renderSteps(c, focusLast){
   });
   if(focusLast){ const all = el.querySelectorAll(".st"); all[all.length-1]?.focus(); }
 }
-function renderLists(){ view==="board" ? renderBoard() : renderBrand(); }
+function renderLists(){ if(view === "board") renderBoard(); }
 
 
 /* ---------- notes editor ---------- */
@@ -765,50 +908,186 @@ function renderMd(text) {
   return html;
 }
 
+/* drop or paste files into an agent chat: each is saved (~/.claude/drops) and its full path goes into the message */
+function attachDrops(zone, ta){
+  const put = t => { const a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? a;
+    const pre = ta.value.slice(0, a), sp = pre && !/\s$/.test(pre) ? " " : "";
+    ta.value = pre + sp + t + " " + ta.value.slice(b); const at = (pre + sp + t + " ").length; ta.setSelectionRange(at, at); ta.oninput && ta.oninput(); ta.focus(); };
+  const send = async files => {
+    for(const f of files){
+      const tag = `[saving ${f.name || "file"}…]`; put(tag);
+      let path = "";
+      try{ const r = await fetch(`/api/drop?name=${encodeURIComponent(f.name || "pasted.png")}`, {method:"POST", body: f.slice(0, f.size, "")}); path = (await r.json()).path || ""; }catch(e){}
+      ta.value = ta.value.replace(tag, path ? (/\s/.test(path) ? `"${path}"` : path) : `[couldn't save ${f.name}]`); ta.oninput && ta.oninput();
+    }
+  };
+  zone.addEventListener("dragover", e => { if([...e.dataTransfer.types].includes("Files")){ e.preventDefault(); zone.classList.add("dropping"); } });
+  zone.addEventListener("dragleave", e => { if(!zone.contains(e.relatedTarget)) zone.classList.remove("dropping"); });
+  zone.addEventListener("drop", e => { zone.classList.remove("dropping"); if(!e.dataTransfer.files.length) return; e.preventDefault(); e.stopPropagation(); ta.focus(); send([...e.dataTransfer.files]); });
+  ta.addEventListener("paste", e => { const fs = [...(e.clipboardData?.files || [])]; if(!fs.length) return; e.preventDefault(); send(fs); });
+  return send;
+}
+
+const SPIN = `<svg class="spin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-opacity=".2" stroke-width="2"/><path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+const CHEV = `<svg class="chev" viewBox="0 0 16 16" width="12" height="12"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const CLIP = `<svg viewBox="0 0 16 16" width="16" height="16"><path d="M10.5 4.5l-5 5a1.4 1.4 0 0 0 2 2l5.2-5.2a2.8 2.8 0 0 0-4-4L3.5 7.5a4.2 4.2 0 0 0 6 6l4-4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const UP = `<svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 13V3.5M3.8 7.5L8 3.3l4.2 4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const stIcon = st => `<span class="ag-st">${st === "working" || st === "starting" ? SPIN : `<span class="adot ${st === "ended" ? "ended" : "online"}"></span>`}</span>`;
+const stText = st => st === "working" ? "Working…" : st === "starting" ? "Turning on…" : st === "waiting" ? "Online · waiting on you" : "Offline";
+const sessName = s => s.title || "Untitled session";
+const pickKey = cid => "agentPick:" + cid;
+
 async function mountAgent(c){
   stopAgent();
   const box = document.getElementById("agentbox");
+  let pick = null; try{ pick = localStorage.getItem(pickKey(c.id)); }catch(e){}
+  let d = null, starting = 0;
+  const paintGo = () => {
+    const ta = box.querySelector(".ag-send textarea"), go = box.querySelector(".ag-go"); if(!ta || !go) return;
+    const stop = !ta.value.trim() && d && d.state === "working";
+    go.classList.toggle("stop", !!stop); go.title = stop ? "Stop (Esc)" : "Send"; go.disabled = !stop && !ta.value.trim();
+  };
+  const resume = async () => {
+    if(!pick && d) pick = d.pid;
+    starting = Date.now(); agentSig = ""; if(d){ d.state = "starting"; paint(); }
+    const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/resume?pid=${encodeURIComponent(pick)}`, {method:"POST"}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
+    if(r.error){ starting = 0; alert(r.error); }
+    load();
+  };
+  let paint = () => {};
   const load = async () => {
     if(!box.isConnected || openId !== c.id){ stopAgent(); return; }
-    let d; try{ d = await (await fetch("/api/agent/" + encodeURIComponent(c.id))).json(); }catch(e){ return; }
-    if(!d.linked){ box.innerHTML = ""; return; }
-    const sig = JSON.stringify([d.state, d.title, d.messages, d.canSend]);
+    let r; try{ r = await (await fetch("/api/agent/" + encodeURIComponent(c.id) + (pick ? "?pid=" + encodeURIComponent(pick) : ""))).json(); }catch(e){ return; }
+    if(!r.linked){ box.innerHTML = ""; d = null; return; }
+    if(starting && r.state === "ended" && Date.now() - starting < 60000) r.state = "starting";   // Orca is opening it
+    else starting = 0;
+    const sig = JSON.stringify([r.pid, r.state, r.title, r.messages, r.canSend, r.sessions]);
     if(sig === agentSig) return;
+    agentSig = sig; d = r;
     const fresh = !box.querySelector(".ag");
-    agentSig = sig;
-    const label = d.state === "waiting" ? "Waiting on you" : d.state === "ended" ? "Session closed" : "Working…";
     if(fresh){
       box.innerHTML = `<div class="ag">
-        <div class="ag-head"><span class="adot ${d.state}"></span><span class="ag-state"></span><span class="ag-title"></span>
-          <button class="ag-open" title="Jump to this terminal in Orca">Open ↗</button></div>
+        <div class="ag-head"><button class="ag-pick" type="button"><span class="ag-cur"></span><span class="ag-title"></span>${CHEV}</button>
+          <button class="ag-open" type="button" title="Jump to this terminal in Orca">Open ↗</button></div>
         <div class="ag-msgs"></div>
-        <form class="ag-send"><textarea rows="1" placeholder="Message this Claude session"></textarea><button type="submit">Send</button></form>
+        <div class="ag-off"><span>This session is offline.</span><button class="ag-on" type="button">Turn on</button></div>
+        <form class="ag-send"><textarea rows="1" placeholder="Write a message…  (/commands work too)"></textarea>
+          <div class="ag-tools"><button class="ag-clip" type="button" title="Attach files (their path goes in the message)">${CLIP}</button>
+          <button class="ag-go" type="submit" title="Send" disabled>${UP}</button></div>
+          <input type="file" multiple hidden></form>
       </div>`;
-      const f = box.querySelector(".ag-send"), ta = f.querySelector("textarea");
-      ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; };
-      ta.onkeydown = e => { if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); f.requestSubmit(); } };
+      const f = box.querySelector(".ag-send"), ta = f.querySelector("textarea"), go = f.querySelector(".ag-go"), file = f.querySelector("input[type=file]");
+      // "/" suggests commands and skills, as in the terminal
+      let cmds = null, cmdPid = null, hits = [], at = 0;
+      const menu = document.createElement("div"); menu.className = "ag-cmds"; menu.style.display = "none"; f.appendChild(menu);
+      const closeCmds = () => { menu.style.display = "none"; hits = []; };
+      const pickCmd = n => { ta.value = "/" + n + " "; closeCmds(); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.oninput(); };
+      const drawCmds = () => {
+        menu.innerHTML = hits.map((c, i) => `<button type="button" class="ag-cmd ${i === at ? "on" : ""}" data-n="${esc(c.name)}"><b>/${esc(c.name)}</b><span>${esc(c.description)}</span><i>${esc(c.source)}</i></button>`).join("");
+        menu.style.display = hits.length ? "" : "none";
+        menu.querySelectorAll(".ag-cmd").forEach(b => b.onmousedown = ev => { ev.preventDefault(); pickCmd(b.dataset.n); });
+        menu.querySelector(".ag-cmd.on")?.scrollIntoView({block: "nearest"});
+      };
+      const suggest = async () => {
+        if(!/^\/[^\s]*$/.test(ta.value)){ closeCmds(); return; }
+        if(!cmds || cmdPid !== d?.pid){ cmdPid = d?.pid; cmds = fetch(`/api/agent/${encodeURIComponent(c.id)}/commands?pid=${encodeURIComponent(d?.pid || "")}`).then(r => r.json()).then(j => (j.commands || []).filter(x => !x.name.startsWith("_"))).catch(() => []); }
+        const list = await cmds;
+        const m = ta.value.match(/^\/([^\s]*)$/);           // what is in the box now (it may have changed while the list loaded)
+        if(!m || ta.selectionStart !== ta.value.length){ closeCmds(); return; }
+        const q = m[1].toLowerCase(); cmds = Promise.resolve(list);
+        const starts = list.filter(x => x.name.toLowerCase().startsWith(q)), inName = list.filter(x => !starts.includes(x) && x.name.toLowerCase().includes(q));
+        hits = [...starts, ...inName, ...(q.length > 2 ? list.filter(x => !starts.includes(x) && !inName.includes(x) && x.description.toLowerCase().includes(q)) : [])].slice(0, 40);
+        at = 0; drawCmds();
+      };
+      ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; paintGo(); suggest(); };
+      ta.onblur = () => setTimeout(closeCmds, 150);
+      ta.onkeydown = e => {
+        if(hits.length){
+          if(e.key === "ArrowDown" || e.key === "ArrowUp"){ e.preventDefault(); at = (at + (e.key === "ArrowDown" ? 1 : hits.length - 1)) % hits.length; drawCmds(); return; }
+          if((e.key === "Enter" || e.key === "Tab") && !e.isComposing){ e.preventDefault(); pickCmd(hits[at].name); return; }
+          if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); closeCmds(); return; }
+        }
+        if(e.key === "Enter" && !e.shiftKey && !e.isComposing){ e.preventDefault(); f.requestSubmit(); }
+      };
+      const drops = attachDrops(box.querySelector(".ag"), ta);
+      f.querySelector(".ag-clip").onclick = () => file.click();
+      file.onchange = () => { if(file.files.length) drops([...file.files]); file.value = ""; };
+      box.querySelector(".ag-on").onclick = () => resume();
       f.onsubmit = async e => {
         e.preventDefault();
-        const text = ta.value.trim(); if(!text) return;
-        const btn = f.querySelector("button"); btn.disabled = true;
+        if(!ta.value.trim() && d && d.state === "working"){   // the Stop button: Esc, as in the terminal
+          go.disabled = true;
+          await fetch(`/api/agent/${encodeURIComponent(c.id)}/send?pid=${encodeURIComponent(d.pid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({text: "\u001b"})}).catch(()=>{});
+          setTimeout(load, 600); return;
+        }
+        const text = ta.value.trim(); if(!text || !d) return;
+        go.disabled = true;
         try{
-          const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/send`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({text})});
+          const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/send?pid=${encodeURIComponent(d.pid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({text})});
           const j = await r.json().catch(()=>({}));
-          if(!r.ok) alert(j.error || "Couldn't send"); else { ta.value = ""; ta.oninput(); setTimeout(load, 800); }
-        } finally { btn.disabled = false; }
+          if(!r.ok) alert(j.error || "Couldn't send"); else { ta.value = ""; setTimeout(load, 800); }
+        } finally { ta.oninput(); }
       };
       box.querySelector(".ag-open").onclick = async () => {
-        const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/open`, {method:"POST"});
+        const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/open?pid=${encodeURIComponent(d.pid)}`, {method:"POST"});
         if(!r.ok){ const j = await r.json().catch(()=>({})); alert(j.error || "Couldn't open it in Orca"); }
       };
+      const pk = box.querySelector(".ag-pick");
+      pk.ondblclick = e => {
+        e.preventDefault(); e.stopPropagation();
+        box.querySelector(".ag-menu")?.remove(); pk.classList.remove("on");
+        const t = pk.querySelector(".ag-title"); if(!d || pk.querySelector(".ag-rename")) return;
+        const inp = document.createElement("input"); inp.className = "ag-rename"; inp.value = d.title || ""; inp.placeholder = "Name this session";
+        t.style.display = "none"; t.after(inp); inp.focus(); inp.select();
+        let done = false;
+        const finish = async ok => {
+          if(done) return; done = true;
+          const v = inp.value.trim(); inp.remove(); t.style.display = "";
+          if(!ok || !v || v === d.title) return;
+          t.textContent = v;
+          const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/rename?pid=${encodeURIComponent(d.pid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({title: v})}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
+          if(r.error) alert(r.error);
+          agentSig = ""; load();
+        };
+        inp.onkeydown = ev => { ev.stopPropagation(); if(ev.key === "Enter"){ ev.preventDefault(); finish(true); } if(ev.key === "Escape"){ ev.preventDefault(); finish(false); } };
+        inp.onblur = () => finish(true);
+        inp.onclick = ev => ev.stopPropagation();
+      };
+      pk.onclick = e => {
+        if(pk.querySelector(".ag-rename")) return;
+        e.stopPropagation();
+        const old = box.querySelector(".ag-menu"); if(old){ old.remove(); pk.classList.remove("on"); return; }
+        if(!d || d.sessions.length < 2) return;
+        const m = document.createElement("div"); m.className = "ag-menu";
+        m.innerHTML = d.sessions.map(s => `<button class="ag-mi ${s.state === "ended" ? "off" : ""}" type="button" data-pid="${esc(s.pid)}" data-off="${s.state === "ended" && s.resumable ? 1 : ""}">${stIcon(s.state)}
+          <span class="mt"><b>${esc(sessName(s))}</b><span>${s.state === "ended" ? (s.resumable ? "Offline · click to turn on" : "Offline") : stText(s.state)}${s.linked ? " · " + ago(s.linked) : ""}</span></span>
+          <span class="ck">${s.pid === d.pid ? "✓" : ""}</span></button>`).join("");
+        box.querySelector(".ag").appendChild(m); pk.classList.add("on");
+        m.querySelectorAll(".ag-mi").forEach(b => b.onclick = () => {
+          pick = b.dataset.pid; try{ localStorage.setItem(pickKey(c.id), pick); }catch(e){}
+          m.remove(); pk.classList.remove("on"); agentSig = ""; box.querySelector(".ag-msgs").innerHTML = "";
+          if(b.dataset.off) resume(); else load();
+        });
+        const away = ev => { if(!m.contains(ev.target)){ m.remove(); pk.classList.remove("on"); document.removeEventListener("pointerdown", away, true); } };
+        document.addEventListener("pointerdown", away, true);
+      };
     }
-    box.querySelector(".ag-head .adot").className = "adot " + d.state;
-    box.querySelector(".ag-state").textContent = label;
-    box.querySelector(".ag-title").textContent = d.title || "";
+    paint = () => {
+    box.querySelector(".ag-cur").innerHTML = stIcon(d.state);
+    box.querySelector(".ag-pick .ag-title").textContent = sessName(d) + (d.state === "working" ? "" : " · " + stText(d.state));
+    box.querySelector(".ag-pick .chev").style.display = d.sessions.length > 1 ? "" : "none";
+    box.querySelector(".ag-pick").title = (d.sessions.length > 1 ? `${d.sessions.length} sessions on this task. ` : "") + "Double-click to rename";
     box.querySelector(".ag-send").style.display = d.canSend ? "" : "none";
-    box.querySelector(".ag-open").style.display = d.state === "ended" ? "none" : "";
+    const off = box.querySelector(".ag-off");
+    off.style.display = d.state === "ended" || d.state === "starting" ? "" : "none";
+    off.querySelector("span").textContent = d.state === "starting" ? "Turning it on in Orca…" : d.resumable ? "This session is offline." : "This session is offline and can't be resumed.";
+    off.querySelector("button").style.display = d.resumable && d.state === "ended" ? "" : "none";
+    box.querySelector(".ag-open").style.display = d.state === "ended" || d.state === "starting" ? "none" : "";
+    paintGo();
+    };
+    paint();
     const list = box.querySelector(".ag-msgs");
-    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40 || !list.childElementCount;
     list.innerHTML = d.messages.map(m => `<div class="ag-m md ${m.role}">${renderMd(m.text)}</div>`).join("") || `<div class="ag-m empty">No messages yet</div>`;
     if(fresh || atBottom) list.scrollTop = list.scrollHeight;
   };
@@ -817,7 +1096,8 @@ async function mountAgent(c){
 }
 
 /* ---------- wiring ---------- */
-document.querySelectorAll(".tab").forEach(t => t.onclick = () => { view = t.dataset.v; render(); });
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => { view = t.dataset.v; try{ localStorage.setItem("view", view); }catch(e){} render(); if(view === "studio") loadStudio(); });
+try{ if(localStorage.getItem("view") === "studio") view = "studio"; }catch(e){}
 $("#newbtn").onclick = () => newCard("Next");
 $("#scrim").onclick = closePeek;
 let escEaten = false;

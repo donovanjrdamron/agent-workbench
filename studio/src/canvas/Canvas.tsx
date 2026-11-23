@@ -1,24 +1,60 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { addComment, addLoose, cancelEditing, createFrame, finishEditing, fitLoose, insert, insertImages, local, moveOut, moveProps, mover, selectFresh, startEditing, style, zoomTo, type Mover } from '../commands'
-import { boxOf, designAt, docOf, elOf, frameAt, frames, isPage, isReloading, isRoot, isTextLeaf, LOOSE_PAD, markReloading, pick, piecesOf, quiet, remeasure, restoreSelection, sidOf } from '../dom'
+import { boxOf, designAt, docOf, elOf, frameAt, frames, isPage, isReloading, isRoot, isTextLeaf, LOOSE_PAD, markReloading, pick, piecesOf, quiet, rawBox, remeasure, restoreSelection, sidOf } from '../dom'
 import { saveLayout } from '../net'
-import { bump, get, select, set, toast, useStore, type Box, type Guide } from '../store'
-import { Overlay } from './Overlay'
+import { bump, get, select, selectFrames, set, toast, useStore, type Box, type Guide } from '../store'
+import { Overlay, rotOf } from './Overlay'
 import { ItemsBelow, ItemsTop } from './Items'
-import { addMedia, addSection, addStep, addText, mediaFiles } from '../items'
+import { ExpandFrame } from './Expand'
+import { CropFrame, startCrop } from './Crop'
+import { SliceFrame } from './Slices'
+import { openMenu } from './ContextMenu'
+import { addMedia, addSection, addStep, addText, mediaFiles, selectItems } from '../items'
 import { prepareImages } from '../alpha'
+import { REVIEW } from '../mode'
+import { ReviewPins, useReviewGestures } from '../review/Review'
 
 type Pt = { x: number; y: number }
+
+/**
+ * Scaling like Photoshop (or Figma's K tool): every size in the piece grows by the same factor, so text scales like a
+ * picture: font sizes, letter and line spacing, padding, borders, corners, gaps, and the parts placed inside it.
+ */
+type ScalePart = { el: HTMLElement; v: Record<string, number> }
+const BOX = ['padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius', 'row-gap', 'column-gap', '-webkit-text-stroke-width']
+function scaleParts(root: HTMLElement): ScalePart[] {
+  const parts: ScalePart[] = []
+  const all = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))].filter((x) => x === root || !x.parentElement?.closest('svg'))
+  for (const el of all) {
+    const cs = getComputedStyle(el), up = el === root ? null : getComputedStyle(el.parentElement!)
+    const v: Record<string, number> = {}
+    const fs = parseFloat(cs.fontSize)
+    // a size it sets itself (an inherited one follows its parent by itself)
+    if (el === root || fs !== parseFloat(up!.fontSize)) v['font-size'] = fs
+    if (cs.letterSpacing.endsWith('px') && (el === root || cs.letterSpacing !== up!.letterSpacing)) v['letter-spacing'] = parseFloat(cs.letterSpacing)
+    if (cs.lineHeight.endsWith('px') && (el === root || 'font-size' in v || cs.lineHeight !== up!.lineHeight)) v['line-height'] = parseFloat(cs.lineHeight)
+    for (const p of BOX) { const n = parseFloat(cs.getPropertyValue(p)); if (n) v[p] = n }
+    const tag = el.tagName.toLowerCase()
+    // widths: the piece's own unless its text just runs on one line; parts inside when they are given one (or are pictures and drawings)
+    if (el === root ? !(cs.whiteSpace === 'nowrap' && !el.style.width) : el.style.width || tag === 'img' || tag === 'svg') v.width = el.getBoundingClientRect().width / (el === root ? 1 : 1)
+    if ((el === root && el.style.height) || (el !== root && (el.style.height || tag === 'img' || tag === 'svg'))) v.height = el.getBoundingClientRect().height
+    if (el !== root && (cs.position === 'absolute' || cs.position === 'relative')) { const l = parseFloat(cs.left), t = parseFloat(cs.top); if (Number.isFinite(l) && cs.left !== 'auto') v.left = l; if (Number.isFinite(t) && cs.top !== 'auto') v.top = t }
+    if (Object.keys(v).length) parts.push({ el, v })
+  }
+  return parts
+}
+const scaled = (part: ScalePart, k: number) => Object.fromEntries(Object.entries(part.v).map(([p, n]) => [p, `${Math.round(n * k * 100) / 100}px`]))
 type Drag =
   | { kind: 'pan'; sx: number; sy: number; vx: number; vy: number }
   // through: the press landed on a selection it does not replace (inside a selected group, on a transparent spot of a selected cut-out). A drag moves that selection; a plain click selects `through` instead.
   | { kind: 'move'; design: string; p0: Pt; sx: number; sy: number; els: HTMLElement[]; movers: Mover[] | null; box0: Box; targets: Box[]; clicked: number; was: boolean; shift: boolean; through?: number[] }
-  | { kind: 'frame'; design: string; p0: Pt; x0: number; y0: number; moved: boolean }
-  | { kind: 'marquee'; design: string | null; p0: Pt }
-  | { kind: 'resize'; design: string; handle: string; p0: Pt; el: HTMLElement; m: Mover; bw: number; bh: number; img: boolean; box0: Box; init: Record<string, string>; last: Record<string, string | null> }
+  | { kind: 'frame'; design: string; p0: Pt; x0: number; y0: number; moved: boolean; group?: { id: string; x0: number; y0: number }[] }
+  | { kind: 'marquee'; design: string | null; p0: Pt; keep?: string[] }
+  | { kind: 'resize'; design: string; handle: string; p0: Pt; el: HTMLElement; m: Mover; bw: number; bh: number; img: boolean; box0: Box; init: Record<string, string>; last: Record<string, string | null>; scale?: ScalePart[] | null; k?: number }
   | { kind: 'create'; design: string | null; p0: Pt; shape: 'rect' | 'ellipse' }
   | { kind: 'newframe'; p0: Pt }
   | { kind: 'newsection'; p0: Pt }
+  | { kind: 'rotate'; design: string; el: HTMLElement; c: Pt; a0: number; r0: number; last: number | null }
   | { kind: 'fresize'; design: string; handle: string; p0: Pt; w0: number; h0: number; root: HTMLElement; init: { width: string; height: string } }
 
 const union = (bs: Box[]): Box => {
@@ -69,7 +105,10 @@ const DesignFrame = memo(function DesignFrame({ id, live }: { id: string; live: 
       next = cur.loose ? { iw: Math.ceil(r.right) + LOOSE_PAD, ih: Math.ceil(r.bottom) + LOOSE_PAD, ox: r.left, oy: r.top } : { iw, ih: Math.max(100, Math.ceil(r.bottom)), ox: r.left, oy: r.top }
       w = Math.round(r.width); h = Math.round(r.height)
     } else {
-      width = cur.width || 1200
+      // the file says how wide it is (<meta name="studio:width" content="600"> on emails). A stored 1200 is the old
+      // default, not a choice, so the file's own width wins over it; a width picked in the panel wins over the file.
+      const declared = Number(doc.querySelector('meta[name="studio:width"]')?.getAttribute('content')) || 0
+      width = declared && (!cur.width || cur.width === 1200) ? declared : cur.width || 1200
       iframe.style.width = `${width}px`
       iframe.style.height = '800px'
       h = Math.max(200, doc.documentElement.scrollHeight)
@@ -150,6 +189,7 @@ export function Canvas() {
   const space = useStore((s) => s.space)
   const order = useStore((s) => s.order)
   const designs = useStore((s) => s.designs)
+  useReviewGestures(ref)
 
   useEffect(() => {
     const el = ref.current!
@@ -174,7 +214,7 @@ export function Canvas() {
     return d && (d.loose || d.w * view.z > 30) && d.x < vis.x + vis.w * 1.5 && d.x + d.w > vis.x - vis.w * 0.5 && d.y < vis.y + vis.h * 1.5 && d.y + d.h > vis.y - vis.h * 0.5
   })
   const cx = vis.x + vis.w / 2, cy = vis.y + vis.h / 2
-  const liveSet = new Set(near.sort((a, b) => Math.hypot(designs[a].x + designs[a].w / 2 - cx, designs[a].y + designs[a].h / 2 - cy) - Math.hypot(designs[b].x + designs[b].w / 2 - cx, designs[b].y + designs[b].h / 2 - cy)).slice(0, 28))
+  const liveSet = new Set(near.sort((a, b) => Math.hypot(designs[a].x + designs[a].w / 2 - cx, designs[a].y + designs[a].h / 2 - cy) - Math.hypot(designs[b].x + designs[b].w / 2 - cx, designs[b].y + designs[b].h / 2 - cy)).slice(0, REVIEW ? 10 : 28)) // (a phone runs out of memory long before a Mac)
 
   const toWorld = (e: { clientX: number; clientY: number }): Pt => {
     const r = ref.current!.getBoundingClientRect()
@@ -194,6 +234,7 @@ export function Canvas() {
   }
 
   const onDown = (e: React.PointerEvent) => {
+    if (e.button === 2) return // right-click: the menu picks what is under the pointer (capturing it here would hide that)
     // Ending a text edit can add or remove tags, which renumbers every later element once the design reloads.
     const fin = get().editing ? finishEditing() : null
     if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur()
@@ -214,25 +255,57 @@ export function Canvas() {
     const handle = t.closest<HTMLElement>('[data-handle]')?.dataset.handle
     // a loose piece is resized by its own outline: the handles act on the piece inside
     const lone = s.sel.design && s.designs[s.sel.design]?.loose && !s.sel.sids.length ? piecesOf(s.sel.design) : []
+    // just outside a corner: turn the piece about its middle, as in Figma
+    if (t.closest('[data-rotate]') && s.sel.design && !isPage(s.sel.design)) {
+      if (lone.length === 1) { select(s.sel.design, [sidOf(lone[0])]); s.sel = get().sel }
+      const el = s.sel.sids.length === 1 ? elOf(s.sel.design, s.sel.sids[0]) : null
+      const dn = s.sel.design
+      if (el && dn) {
+        const b = rawBox(dn, el), c = { x: b.x + b.w / 2, y: b.y + b.h / 2 }
+        drag.current = { kind: 'rotate', design: dn, el, c, a0: Math.atan2(p.y - c.y, p.x - c.x), r0: rotOf(el), last: null }
+        ref.current!.classList.add('rotating')
+      }
+      return
+    }
     if (handle && lone.length === 1) { select(s.sel.design, [sidOf(lone[0])]); s.sel = get().sel }
     if (handle && s.sel.design && s.sel.sids.length === 1 && !isPage(s.sel.design)) {
       const el = elOf(s.sel.design, s.sel.sids[0])
       if (el) {
         const cs = getComputedStyle(el)
         const init = { width: el.style.width, height: el.style.height, left: el.style.left, top: el.style.top, translate: el.style.translate }
-        drag.current = { kind: 'resize', design: s.sel.design, handle, p0: p, el, m: mover(el), bw: parseFloat(cs.width) || el.offsetWidth, bh: parseFloat(cs.height) || el.offsetHeight, img: el.tagName === 'IMG' || el.tagName === 'svg', box0: boxOf(s.sel.design, el), init, last: {} }
+        const isImg = el.tagName === 'IMG' || el.tagName === 'svg'
+        // a corner of a text block (or of anything, with the Scale tool, K) scales it all like a picture
+        const scale = handle.length === 2 && !isImg && (s.scaleMode || isTextLeaf(el)) ? scaleParts(el) : null
+        drag.current = { kind: 'resize', design: s.sel.design, handle, p0: p, el, m: mover(el), bw: parseFloat(cs.width) || el.offsetWidth, bh: parseFloat(cs.height) || el.offsetHeight, img: isImg, box0: boxOf(s.sel.design, el), init, last: {}, scale }
       }
       return
     }
     const lab = t.closest<HTMLElement>('[data-label]')?.dataset.label
-    if (lab) {
-      select(lab, [])
-      drag.current = { kind: 'frame', design: lab, p0: p, x0: s.designs[lab].x, y0: s.designs[lab].y, moved: false }
-      return
+    // a whole frame: shift adds it to (or takes it out of) the frames selected; a press on one of several selected frames moves them all
+    const frameDown = (design: string) => {
+      if (e.shiftKey) {
+        const cur = s.dsel.length ? s.dsel : s.sel.design && !s.sel.sids.length ? [s.sel.design] : []
+        selectFrames(cur.includes(design) ? cur.filter((x) => x !== design) : [...cur, design])
+        return
+      }
+      const group = s.dsel.length > 1 && s.dsel.includes(design) ? s.dsel : null
+      if (!group && (s.sel.design !== design || s.sel.sids.length)) select(design, [])
+      drag.current = { kind: 'frame', design, p0: p, x0: s.designs[design].x, y0: s.designs[design].y, moved: false, group: group?.filter((id) => s.designs[id]).map((id) => ({ id, x0: s.designs[id].x, y0: s.designs[id].y })) }
     }
+    if (lab) { frameDown(lab); return }
     if (s.tool === 'frame') { drag.current = { kind: 'newframe', p0: p }; return }
     if (s.tool === 'section') { drag.current = { kind: 'newsection', p0: p }; return }
     if (s.tool === 'step') { e.preventDefault(); addStep(p); return } // (no default: the new box keeps the keyboard)
+    // A selected piece that hangs outside its frame (the frame crops it) can still be grabbed by its box and dragged back in.
+    if (s.tool === 'move' && s.sel.design && s.sel.sids.length && !isPage(s.sel.design) && !designAt(p)) {
+      const d0 = s.sel.design
+      const cur = s.sel.sids.map((x) => elOf(d0, x)).filter(Boolean) as HTMLElement[]
+      const bs = cur.map((c) => rawBox(d0, c)) // (its whole box: the part outside the frame is what the user grabs)
+      if (bs.some((b) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h)) {
+        drag.current = { kind: 'move', design: d0, p0: p, sx: e.clientX, sy: e.clientY, els: cur, movers: null, box0: union(bs), targets: snapTargets(d0, cur), clicked: -1, was: true, shift: e.shiftKey }
+        return
+      }
+    }
     const design = designAt(p)
     if (s.tool === 'note') { if (design) addComment(design, p, pick(design, p, false)); return }
     if (s.tool === 'text') {
@@ -243,7 +316,8 @@ export function Canvas() {
     }
     if (s.tool === 'rect' || s.tool === 'ellipse') { drag.current = { kind: 'create', design: design && !s.designs[design].loose && !isPage(design) ? design : null, p0: p, shape: s.tool }; return }
 
-    if (!design) { select(null); return }
+    // bare board: a drag draws a selection box around planning objects (shift adds to what is selected)
+    if (!design) { const keep = e.shiftKey ? s.isel : []; select(null); if (keep.length) selectItems(keep); drag.current = { kind: 'marquee', design: null, p0: p, keep } as Drag; return }
     // First click picks the frame. Only an already-selected frame lets you reach inside it.
     const active = s.sel.design === design
     let el = active ? pick(design, p, e.metaKey || e.ctrlKey) : null
@@ -256,7 +330,7 @@ export function Canvas() {
     const moveDrag = (els: HTMLElement[], clicked: number, was: boolean, through?: number[]): Drag => ({ kind: 'move', design, p0: p, sx: e.clientX, sy: e.clientY, els, movers: null, box0: union(els.map((x) => boxOf(design, x))), targets: snapTargets(design, els), clicked, was, shift: e.shiftKey, through })
     // As in Figma, a press on what is already selected moves it, also where a plain click would pick something else:
     // on a child of the selected group, or on a transparent spot of a selected cut-out. Not when another piece sits in
-    // front of the selection at that point: then they means that piece.
+    // front of the selection at that point: then the user means that piece.
     if (active && !isPage(design) && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !(el && s.sel.sids.includes(sidOf(el)))) {
       const cur = s.sel.sids.map((x) => elOf(design, x)).filter(Boolean) as HTMLElement[]
       const f = frames.get(design), dd = s.designs[design]
@@ -270,8 +344,7 @@ export function Canvas() {
     }
     if (!el) {
       if (active && e.altKey) { drag.current = { kind: 'marquee', design, p0: p }; return }
-      if (!active || s.sel.sids.length) select(design, [])
-      drag.current = { kind: 'frame', design, p0: p, x0: s.designs[design].x, y0: s.designs[design].y, moved: false }
+      frameDown(design)
       return
     }
     const sid = sidOf(el)
@@ -297,13 +370,22 @@ export function Canvas() {
       const t = e.target as HTMLElement
       const lab = t.closest<HTMLElement>('[data-label]')?.dataset.label
       const design = lab || designAt(p)
-      const el = design && design === s.sel.design && !lab && !t.closest('[data-handle]') ? pick(design, p, e.metaKey || e.ctrlKey) : null
+      const el = design && design === s.sel.design && !lab && !t.closest('[data-handle]') && !t.closest('[data-rotate]') ? pick(design, p, e.metaKey || e.ctrlKey) : null
       const next = design ? { design, sid: el ? sidOf(el) : null } : null
       if (next?.design !== s.hover?.design || next?.sid !== s.hover?.sid) set({ hover: next })
       return
     }
     const z = s.view.z
     if (d.kind === 'pan') { set({ view: { ...s.view, x: d.vx + e.clientX - d.sx, y: d.vy + e.clientY - d.sy } }); return }
+    if (d.kind === 'rotate') {
+      let a = d.r0 + ((Math.atan2(p.y - d.c.y, p.x - d.c.x) - d.a0) * 180) / Math.PI
+      a = e.shiftKey ? Math.round(a / 15) * 15 : Math.round(a * 10) / 10
+      a = Math.round((((a % 360) + 540) % 360 - 180) * 10) / 10
+      if (a) d.el.style.rotate = `${a}deg`; else d.el.style.removeProperty('rotate')
+      d.last = a
+      bump()
+      return
+    }
     if (d.kind === 'fresize') {
       const w = d.handle.includes('e') ? Math.max(20, Math.round(d.w0 + p.x - d.p0.x)) : d.w0
       const h = d.handle.includes('s') ? Math.max(20, Math.round(d.h0 + p.y - d.p0.y)) : d.h0
@@ -316,6 +398,7 @@ export function Canvas() {
       d.moved = true
       const cur = s.designs[d.design]
       if (cur.loose) { const to = frameAt(p); if (to !== (s.drop?.to ?? null) || !to !== !s.drop) set({ drop: to ? { to } : null }) }
+      if (d.group) { const all = { ...s.designs }; for (const g of d.group) all[g.id] = { ...all[g.id], x: Math.round(g.x0 + p.x - d.p0.x), y: Math.round(g.y0 + p.y - d.p0.y) }; set({ designs: all }); return }
       set({ designs: { ...s.designs, [d.design]: { ...cur, x: Math.round(d.x0 + p.x - d.p0.x), y: Math.round(d.y0 + p.y - d.p0.y) } } })
       return
     }
@@ -356,6 +439,10 @@ export function Canvas() {
       const b0 = d.box0
       const tw = Math.max(6, b0.w + sx * dx), th = Math.max(6, b0.h + sy * dy)
       const size: Record<string, string | null> = {}
+      if (d.scale) {
+        d.k = Math.max(0.05, Math.max(tw / b0.w, th / b0.h))
+        for (const part of d.scale) for (const [k, v] of Object.entries(scaled(part, d.k))) part.el.style.setProperty(k, v)
+      } else
       // Pictures always scale as a whole (so rotated and masked ones behave). Shift does it for anything else.
       if (d.img || (e.shiftKey && sx && sy)) {
         const k = sx && sy ? Math.max(tw / b0.w, th / b0.h) : sx ? tw / b0.w : th / b0.h
@@ -371,7 +458,7 @@ export function Canvas() {
       put(moveProps(d.m, 0, 0))
       const nb = boxOf(d.design, d.el)
       // A side handle on a picture scales it about its middle. On anything else it leaves the top (or left) where it is:
-      // text grows downwards as it wraps, and the block must not hop up while they sets its width.
+      // text grows downwards as it wraps, and the block must not hop up while the user sets its width.
       const anchor = (b: Box) => ({ x: sx > 0 ? b.x : sx < 0 ? b.x + b.w : d.img ? b.x + b.w / 2 : b.x, y: sy > 0 ? b.y : sy < 0 ? b.y + b.h : d.img ? b.y + b.h / 2 : b.y })
       const a0 = anchor(b0), a1 = anchor(nb)
       const mx = Math.round(a0.x - a1.x), my = Math.round(a0.y - a1.y)
@@ -391,6 +478,16 @@ export function Canvas() {
         const hits = Array.from(root?.children || []).filter((c) => c.hasAttribute('data-sid')).filter((c) => { const b = boxOf(d.design!, c); return b.w && b.h && b.x < box.x + box.w && b.x + b.w > box.x && b.y < box.y + box.h && b.y + b.h > box.y && !(b.x <= box.x && b.y <= box.y && b.x + b.w >= box.x + box.w && b.y + b.h >= box.y + box.h) })
         set({ sel: { design: d.design, sids: hits.map(sidOf) } })
       }
+      if (d.kind === 'marquee' && !d.design && box.w * s.view.z > 4 && box.h * s.view.z > 4) {
+        const touch = (b: Box) => b.x < box.x + box.w && b.x + b.w > box.x && b.y < box.y + box.h && b.y + b.h > box.y
+        const holds = (b: Box) => b.x >= box.x && b.y >= box.y && b.x + b.w <= box.x + box.w && b.y + b.h <= box.y + box.h
+        // a section only when the box takes all of it, else every drag inside a section would pick the section too
+        const hits = Object.values(s.items).filter((i) => i.kind !== 'arrow' && (i.kind === 'section' ? holds(i) : touch(i))).map((i) => i.id)
+        const ids = [...new Set([...(d.keep || []), ...hits])]
+        // frames it touches are selected too, so a whole row of designs can be moved or deleted at once
+        const frames = s.order.filter((id) => s.designs[id] && touch(s.designs[id]))
+        if (ids.join() !== s.isel.join() || frames.join() !== (s.dsel.length ? s.dsel : s.sel.design ? [s.sel.design] : []).join()) selectFrames(frames, ids)
+      }
     }
   }
 
@@ -400,6 +497,14 @@ export function Canvas() {
     if (!d) return
     try { ref.current!.releasePointerCapture(e.pointerId) } catch { /* already released */ }
     const s = get()
+    if (d.kind === 'rotate') {
+      ref.current!.classList.remove('rotating')
+      if (d.last === null || d.last === d.r0) return
+      const v = d.last ? `${d.last}deg` : null
+      if (s.designs[d.design]?.loose) { style(d.design, [d.el], { rotate: v }); fitLoose(d.design); select(d.design, []) }
+      else style(d.design, [d.el], { rotate: v }, true)
+      return
+    }
     if (d.kind === 'fresize') {
       quiet.delete(d.design)
       const c = s.designs[d.design]
@@ -422,7 +527,8 @@ export function Canvas() {
     if (d.kind === 'frame') {
       const drop = s.drop
       set({ drop: null })
-      if (!d.moved) return
+      if (!d.moved) { if (d.group) select(d.design, []); return } // a plain click on one of several picks that one
+      if (d.group) { saveLayout(d.group.map((g) => ({ id: g.id, x: s.designs[g.id].x, y: s.designs[g.id].y })), d.group.map((g) => ({ id: g.id, x: g.x0, y: g.y0 }))); return }
       const c = s.designs[d.design]
       // a loose piece let go over a frame goes into it
       if (c.loose && drop?.to && piecesOf(d.design).length) { moveOut(d.design, piecesOf(d.design), drop.to).then((ok) => { if (!ok) { const now = get().designs[d.design]; if (now) set({ designs: { ...get().designs, [d.design]: { ...now, x: d.x0, y: d.y0 } } }) } }); return }
@@ -446,7 +552,15 @@ export function Canvas() {
       else style(d.design, [], {}, true)
       return
     }
-    if (d.kind === 'resize') { if (Object.keys(d.last).length) { if (s.designs[d.design]?.loose) { style(d.design, [d.el], d.last); fitLoose(d.design); select(d.design, []) } else style(d.design, [d.el], d.last, true) } return }
+    if (d.kind === 'resize') {
+      if (d.scale && d.k) { // every scaled part is written, the piece itself with its new place
+        for (const part of d.scale) style(d.design, [part.el], part.el === d.el ? { ...scaled(part, d.k), ...d.last } : scaled(part, d.k))
+        if (s.designs[d.design]?.loose) { fitLoose(d.design); select(d.design, []) } else style(d.design, [], {}, true)
+        return
+      }
+      if (Object.keys(d.last).length) { if (s.designs[d.design]?.loose) { style(d.design, [d.el], d.last); fitLoose(d.design); select(d.design, []) } else style(d.design, [d.el], d.last, true) }
+      return
+    }
     if (d.kind === 'marquee') { set({ marquee: null }); return }
     if (d.kind === 'create') {
       const box = s.marquee
@@ -470,7 +584,7 @@ export function Canvas() {
     if (!el) return
     const f = frames.get(design), dd = s.designs[design]
     const at = f ? { x: p.x - dd.x + f.ox, y: p.y - dd.y + f.oy } : undefined
-    // The document under the pointer is on its way out (the copy they just left is being saved). The first click of this
+    // The document under the pointer is on its way out (the copy the user just left is being saved). The first click of this
     // double-click selected the piece by where it will be: go into it once the new document is in.
     if (isReloading(design)) {
       if (isTextLeaf(el)) { set({ afterLoad: { design, sid: null, edit: true, at } }); setTimeout(() => { const a = get().afterLoad; if (a && a.sid === null && a.design === design) set({ afterLoad: null }) }, 4000) } // (never left waiting for a reload that does not come)
@@ -481,6 +595,9 @@ export function Canvas() {
       return
     }
     const deep = pick(design, p, true)
+    // a picture: crop it, as in Figma
+    const pic = el.tagName === 'IMG' ? el : deep?.tagName === 'IMG' ? deep : null
+    if (pic) { select(design, [sidOf(pic)]); startCrop({ kind: 'el', design, sid: sidOf(pic) }); return }
     if (deep) select(design, [sidOf(deep)])
   }
 
@@ -488,14 +605,15 @@ export function Canvas() {
     <div
       ref={ref}
       className={`canvas tool-${space ? 'hand' : tool}`}
-      onPointerDown={onDown}
-      onPointerMove={onMove}
-      onPointerUp={onUp}
-      onPointerLeave={() => !drag.current && get().hover && set({ hover: null })}
-      onDoubleClick={onDouble}
-      onContextMenu={(e) => e.preventDefault()}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
+      {...(REVIEW ? {} : { // review mode (the phone) has its own touch handling: see useReviewGestures
+      onPointerDown: onDown,
+      onPointerMove: onMove,
+      onPointerUp: onUp,
+      onPointerLeave: () => !drag.current && get().hover && set({ hover: null }),
+      onDoubleClick: onDouble,
+      onContextMenu: (e: React.MouseEvent) => openMenu(e, toWorld(e)),
+      onDragOver: (e: React.DragEvent) => e.preventDefault(),
+      onDrop: (e: React.DragEvent) => {
         e.preventDefault()
         const p = toWorld(e), design = designAt(p), files = [...e.dataTransfer.files]
         if (!files.length) return
@@ -505,14 +623,17 @@ export function Canvas() {
         if (inAd && pics.length) insertImages(design, pics, p)
         const rest = inAd ? mediaFiles(files).filter((f) => !f.type.startsWith('image/')) : mediaFiles(files)
         if (rest.length) addMedia(rest, p)
-      }}
+      } })}
     >
       <div className="world" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
         <ItemsBelow />
         {order.map((id) => <DesignFrame key={id} id={id} live={liveSet.has(id)} />)}
         <ItemsTop />
+        <ExpandFrame />
+        <CropFrame />
+        <SliceFrame />
       </div>
-      <Overlay />
+      {REVIEW ? <ReviewPins /> : <Overlay />}
     </div>
   )
 }

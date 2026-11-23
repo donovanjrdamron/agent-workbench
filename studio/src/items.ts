@@ -16,7 +16,7 @@ export function viewCenter() {
   return { x: (s.size.w / 2 - s.view.x) / s.view.z, y: (s.size.h / 2 - s.view.y) / s.view.z }
 }
 export function selectItems(ids: string[]) {
-  set({ isel: ids, sel: { design: null, sids: [] }, openComment: null, ...(get().iedit && !ids.includes(get().iedit!.id) ? { iedit: null } : {}) })
+  set({ isel: ids, dsel: [], sel: { design: null, sids: [] }, openComment: null, ...(get().iedit && !ids.includes(get().iedit!.id) ? { iedit: null } : {}) })
 }
 export function startEdit(id: string, seed?: string) {
   selectItems([id])
@@ -186,4 +186,41 @@ export async function dropIntoDesign(itemId: string, design: string, at: { x: nu
   for (const n of Object.values(get().items).filter((o) => o.attach === itemId && o.text?.trim())) await commentOp({ design, add: { x: Math.round(p.x), y: Math.round(p.y), text: n.text, target: 'the picture dropped here', author: 'user' } })
   await removeItems([itemId])
   return true
+}
+
+// ⌘C / ⌘X / ⌘V on planning objects. The clipboard gets a marker, so a paste knows the copy came from here and not a
+// screenshot or a design piece copied since.
+export const ITEM_MARK = 'studio-items:'
+let clip: { items: Item[]; mark: string; n: number } | null = null
+export function copyItems(cut = false) {
+  const s = get()
+  const ids = new Set(dragGroup(s.isel.filter((i) => s.items[i]?.kind !== 'arrow')).items)
+  for (const o of Object.values(s.items)) if (o.kind === 'arrow' && ids.has(o.from!) && ids.has(o.to!)) ids.add(o.id) // arrows between copied things
+  const items = [...ids].map((i) => s.items[i]).filter(Boolean)
+  if (!items.length) return
+  clip = { items: structuredClone(items), mark: ITEM_MARK + Date.now().toString(36), n: 0 }
+  navigator.clipboard?.writeText(clip.mark).catch(() => { /* the in-page copy still works */ })
+  if (cut) removeItems(s.isel)
+  toast(`${cut ? 'Cut' : 'Copied'} ${items.filter((i) => i.kind !== 'arrow').length} thing${items.length === 1 ? '' : 's'}`)
+}
+export const hasItemClip = (text: string) => !!clip && (text === clip.mark || (!text && !!clip))
+export function pasteItems() {
+  if (!clip) return false
+  clip.n++
+  const off = 40 * clip.n
+  const ids = new Map(clip.items.map((i) => [i.id, newId(i.kind)]))
+  const copies = clip.items.map((i) => ({ ...i, id: ids.get(i.id)!, x: i.kind === 'arrow' ? 0 : i.x + off, y: i.kind === 'arrow' ? 0 : i.y + off,
+    from: i.from && (ids.get(i.from) ?? i.from), to: i.to && (ids.get(i.to) ?? i.to), attach: i.attach && ids.get(i.attach) }))
+  itemOp(copies)
+  selectItems(copies.filter((c) => c.kind !== 'arrow' && !c.attach).map((c) => c.id))
+  return true
+}
+/** Shift+H / Shift+V: mirror the selected pictures, videos and boxes. */
+export function flipItems(axis: 'x' | 'y') {
+  const s = get()
+  const put = s.isel.map((i) => s.items[i]).filter((i) => i && i.kind !== 'arrow' && i.kind !== 'section').map((i) => axis === 'x' ? { ...i, fx: !i.fx || undefined } : { ...i, fy: !i.fy || undefined })
+  if (put.length) itemOp(put)
+}
+export function selectAllItems() {
+  selectItems(Object.values(get().items).filter((i) => i.kind !== 'arrow' && !i.attach).map((i) => i.id))
 }

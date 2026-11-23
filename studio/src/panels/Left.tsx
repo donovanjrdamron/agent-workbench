@@ -3,6 +3,7 @@ import { finishEditing, focusDesign, moveLayer, paintOrder, selectFresh, sidAfte
 import { elOf } from '../dom'
 import { frames, isRoot, isTextLeaf, label, sidOf } from '../dom'
 import { addBoard, connect, newDesign, refreshBoards } from '../net'
+import { BoardMenu } from './BoardMenu'
 import { get, select, set, toast, useStore } from '../store'
 import { nameOf } from '../canvas/Overlay'
 import { Icon } from '../ui'
@@ -103,9 +104,7 @@ export function Left() {
     <aside className="panel left">
       <div className="file-bar">
         <span className={`dot${connected ? ' on' : ''}`} title={connected ? 'Live: agent edits to the files show up here' : 'Reconnecting'} />
-        <select className="select file-select" value={board} onChange={(e) => { e.currentTarget.blur(); connect(e.target.value) }}>
-          {boards.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
-        </select>
+        <BoardMenu />
         <button className="mini" title="Add a folder of HTML designs" onClick={onNewBoard}><Icon name="plus" size={14} /></button>
       </div>
       <div className="panel-head"><h4>Designs <span className="count">{order.length}</span></h4>
