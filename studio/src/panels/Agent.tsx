@@ -3,7 +3,7 @@
 // knows which cards and sessions work on this board.
 import { useEffect, useRef, useState } from 'react'
 import { renderMd } from '../md'
-import { useStore } from '../store'
+import { toast, useStore } from '../store'
 import { wb, wbBase } from '../workboard'
 
 type State = 'working' | 'waiting' | 'ended' | 'starting'
@@ -27,6 +27,8 @@ const pref = () => { try { return localStorage.getItem('studioChat') !== '0' } c
 const stText = (s?: State) => (s === 'working' ? 'Working…' : s === 'starting' ? 'Turning on…' : s === 'waiting' ? 'Online · waiting on you' : 'Offline')
 const name = (s: { title?: string; card?: string }) => s.title || s.card || 'Untitled session'
 const ago = (t: number) => { const s = Date.now() / 1000 - t; return s < 3600 ? 'just now' : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago` }
+
+const dur = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s` : `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` }
 
 export const Spinner = () => (
   <svg className="ag-spin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity=".22" strokeWidth="2" /><path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
@@ -53,6 +55,11 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
   const [at, setAt] = useState(0)
   const [renaming, setRenaming] = useState<string | null>(null) // the name being typed (double-click the session name)
   const [text, setText] = useState('')
+  // the background tasks it left running: click the line to see each one's latest output
+  const [bgOpen, setBgOpen] = useState(false)
+  const [bgTasks, setBgTasks] = useState<{ label: string; since?: string; output: string }[] | null>(null)
+  const [fork, setFork] = useState<string | null>(null) // the Fork box: what the new session should do (null: closed)
+  const [forking, setForking] = useState(false)
   // what you just sent shows at once; the session's own record catches up a moment later
   const [sent, setSent] = useState<{ text: string; n: string; at: number; k: string }[]>([])
   const [busy, setBusy] = useState(false)
@@ -157,6 +164,13 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
     return () => document.removeEventListener('pointerdown', away, true)
   }, [cmMenu])
   useEffect(() => {
+    if (!bgOpen || !cur) { setBgTasks(null); return }
+    let off = false
+    const load = () => fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/bg?pid=${encodeURIComponent(cur.pid)}`).then((r) => r.json()).then((j) => { if (!off) setBgTasks(j.tasks || []) }).catch(() => {})
+    load(); const t = setInterval(load, 3000)
+    return () => { off = true; clearInterval(t) }
+  }, [bgOpen, cur?.cid, cur?.pid])
+  useEffect(() => {
     if (!menu) return
     const away = (e: PointerEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenu(false) }
     document.addEventListener('pointerdown', away, true)
@@ -211,6 +225,14 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
       setSentAt(now)
       try { localStorage.setItem(sentKey(board), String(now)) } catch { /* private window */ }
     } finally { setBusy(false) }
+  }
+  const doFork = async () => {
+    if (forking) return
+    setForking(true)
+    const r = await fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/fork?pid=${encodeURIComponent(cur.pid)}`, { method: 'POST', body: JSON.stringify({ text: fork || '' }) }).then((r) => r.json()).catch(() => ({ error: 'The work board is not answering' }))
+    setForking(false)
+    if (r.error) { alert(r.error); return }
+    setFork(null); toast('Opening the fork in Orca. It shows up in this list as soon as it starts.')
   }
   const rename = async (v: string | null) => {
     setRenaming(null)
@@ -282,6 +304,7 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
           {live.length > 1 && <svg className="ag-chev" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
         </button>
         )}
+        <button className="ag-btn" onClick={() => setFork((f) => (f === null ? '' : null))} title="Fork: a new session with this whole conversation (claude --resume --fork-session), to do another part of the job">⑂ Fork</button>
         {!sheet && state !== 'ended' && state !== 'starting' && <button className="ag-btn" onClick={openTerm} title="Jump to this terminal in Orca">Open ↗</button>}
         {geom && !sheet && <button className="ag-btn" onClick={dock} title="Put it back on the right">⇥</button>}
         <button className="ag-btn" onClick={() => (sheet ? onClose?.() : toggle(false))} title="Hide">✕</button>
@@ -301,12 +324,27 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
         {shown.length ? shown.map((m, i) => <div key={i} className={`ag-m ${m.role}`} dangerouslySetInnerHTML={{ __html: renderMd(m.text) }} />)
           : !thinking && <div className="ag-m empty">No messages yet</div>}
         {thinking ? <div className="ag-think">Thinking</div>
-          : agent.bg ? <div className="ag-think" title="Commands it started are still running in the background">{agent.bg} background task{agent.bg > 1 ? 's' : ''} running</div> : null}
+          : agent.bg ? <>
+            <button type="button" className="ag-think ag-bgt" onClick={() => setBgOpen((o) => !o)} title="See what they're doing">{agent.bg} background task{agent.bg > 1 ? 's' : ''} running {bgOpen ? '▾' : '▸'}</button>
+            {bgOpen && <div className="ag-bgbox">{bgTasks === null ? <div className="bg-t bg-none">Loading…</div> : bgTasks.length ? bgTasks.map((t, i) => (
+              <div key={i} className="bg-t"><div className="bg-h"><b>{t.label}</b>{t.since && <span>{dur(Date.now() - Date.parse(t.since))}</span>}</div>
+                {t.output ? <pre ref={(el) => { if (el) el.scrollTop = el.scrollHeight }}>{t.output}</pre> : <div className="bg-none">No output yet</div>}</div>
+            )) : <div className="bg-t bg-none">They were started outside this conversation's record, so there are no details to show.</div>}</div>}
+          </> : null}
       </div>
       {(state === 'ended' || state === 'starting') && (
         <div className="ag-off">
           <span>{state === 'starting' ? 'Turning it on in Orca…' : agent.resumable ? 'This session is offline.' : "This session is offline and can't be resumed."}</span>
           {state === 'ended' && agent.resumable && <button className="ag-on" onClick={() => resume(cur)}>Turn on</button>}
+        </div>
+      )}
+      {fork !== null && (
+        <div className="ag-fork">
+          <div className="ag-fork-h">Fork “{name({ title: agent.title || cur.title, card: cur.card })}”</div>
+          <textarea autoFocus rows={3} value={fork} placeholder="What should the fork work on? It starts with everything this session knows. (Optional)"
+            onChange={(e) => setFork(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setFork(null); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) doFork() }} />
+          <div className="ag-fork-r"><span>New Orca tab, same folder; it joins this task.</span><button className="ag-btn" onClick={() => setFork(null)}>Cancel</button><button className="ag-on" disabled={forking} onClick={doFork}>{forking ? 'Forking…' : 'Fork'}</button></div>
         </div>
       )}
       {agent.canSend && (

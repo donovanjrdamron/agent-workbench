@@ -347,6 +347,31 @@ def card_sessions(c):
     rows.sort(key=lambda r: (RANK.get(r["state"], 1), -(r["linked"] or 0)))
     return rows
 
+# sessions started from the board (forks) join their card once they start: matched by the Orca terminal they run in
+PENDING = {}   # orca tab -> (card id, when)
+def expect_link(handle, tab, cid):
+    """A session opened from the board joins `cid` once its record appears: written when it starts, or (a fork, which
+    starts without the startup hook) when it first gets or sends a message. Matched by its Orca tab, whose id stays put."""
+    key = tab or handle
+    PENDING[key] = (cid, time.time())
+    import threading
+    def watch():
+        for _ in range(4320):   # up to 6 hours: a fork with no task joins when you first talk to it
+            time.sleep(5)
+            for f in glob.glob(os.path.join(SESS_DIR, "*.json")):
+                try: r = json.load(open(f))
+                except Exception: continue
+                if r.get("pid") and ((handle and r.get("terminal") == handle) or (tab and (r.get("pane") or "").startswith(tab + ":"))):
+                    a = {"pid": str(r["pid"]), "terminal": r.get("terminal") or handle, "linked": int(time.time()), "transcript": r.get("transcript", ""), "sid": r.get("sid", ""), "cwd": r.get("cwd", "")}
+                    def fn(card):
+                        ags = [x for x in (card.get("agents") or ([card["agent"]] if card.get("agent") else [])) if str(x.get("pid")) != a["pid"]]
+                        card["agents"] = (ags + [a])[-12:]; card["agent"] = a
+                    try: update_card(cid, fn)
+                    except Exception: pass
+                    PENDING.pop(key, None); return
+        PENDING.pop(key, None)
+    threading.Thread(target=watch, daemon=True).start()
+
 def remember_transcripts(c):
     """Copy each live session's transcript path onto the card, so its chat stays readable after it ends."""
     todo = {}
@@ -378,6 +403,45 @@ def bg_tasks(pid):
         except Exception: pass
         _ps.update(t=time.time(), kids=kids)
     return _ps["kids"].get(str(pid), 0)
+
+def bg_details(path, limit=6000):
+    """The background commands a session started that have not finished: what each is (its description), when it
+    started, and the last lines of its output file. Read from the session's own record of the conversation."""
+    started, done = {}, set()
+    for i, raw in enumerate(reverse_lines(path)):
+        if i > limit: break
+        if len(raw) > 3_000_000: continue
+        if b"background" not in raw and b"task-notification" not in raw and b"run_in_background" not in raw: continue
+        try: d = json.loads(raw)
+        except Exception: continue
+        c = (d.get("message") or {}).get("content")
+        blocks = c if isinstance(c, list) else [{"type": "text", "text": c}] if isinstance(c, str) else []
+        for b in blocks:
+            if not isinstance(b, dict): continue
+            t = b.get("text") if b.get("type") == "text" else b.get("content") if b.get("type") == "tool_result" else None
+            if isinstance(t, list): t = " ".join(x.get("text", "") for x in t if isinstance(x, dict))
+            if isinstance(t, str):
+                for m in re.finditer(r"<task-id>([\w-]+)</task-id>.*?<status>(\w+)</status>", t, re.S):
+                    if m.group(2) in ("completed", "failed", "killed", "stopped", "cancelled", "error"): done.add(m.group(1))
+                m = re.match(r"\s*Command running in background with ID: ([\w-]+)\. Output is being written to: (\S+?)\.?(?:\s|$)", t) if b.get("type") == "tool_result" else None
+                if m and m.group(1) not in started: started[m.group(1)] = {"id": m.group(1), "file": m.group(2), "use": b.get("tool_use_id"), "ts": d.get("timestamp")}
+            if b.get("type") == "tool_use":
+                for x in started.values():
+                    if x.get("use") == b.get("id"):
+                        inp = b.get("input") or {}
+                        x["label"] = inp.get("description") or _short(inp.get("command"), 90); x["command"] = _short(inp.get("command"), 300)
+    out = []
+    for x in started.values():
+        if x["id"] in done: continue
+        tail = ""
+        try:
+            with open(x["file"], "rb") as f:
+                f.seek(0, 2); n = f.tell(); f.seek(max(0, n - 4000)); tail = f.read().decode("utf-8", "replace")
+            tail = "\n".join(tail.splitlines()[-14:])
+        except OSError: tail = ""
+        if re.search(r"\[exited with code -?\d+\]\s*$", tail): continue   # it finished (the notification just hasn't been read yet)
+        out.append({"label": x.get("label") or x["id"], "command": x.get("command", ""), "since": x.get("ts"), "output": tail})
+    return sorted(out, key=lambda x: x.get("since") or "")
 
 def live_pid(st):
     return str((st.get("rec") or {}).get("pid") or (st.get("agent") or {}).get("pid") or "")
@@ -648,6 +712,12 @@ class H(BaseHTTPRequestHandler):
                                               "canSend": st["state"] != "ended" and bool(st["rec"].get("terminal") or st["agent"].get("terminal")),
                                               "resumable": row["resumable"],
                                               "sessions": [{k: r[k] for k in ("pid", "state", "title", "linked", "resumable")} for r in rows]}))
+        m = re.match(r"^/api/agent/([^/]+)/bg$", p)
+        if m:   # what this session's background commands are doing (click "N background tasks running")
+            c = card_info(unquote(m.group(1))); rows = card_sessions(c) if c else []
+            want = self.query("pid"); row = next((r for r in rows if r["pid"] == want), rows[0] if rows else None)
+            if not row or not row["st"]["transcript"]: return self.send(200, json.dumps({"tasks": []}))
+            return self.send(200, json.dumps({"tasks": bg_details(row["st"]["transcript"]), "running": bg_tasks(live_pid(row["st"]))}))
         m = re.match(r"^/api/agent/([^/]+)/start-info$", p)
         if m:   # what "Start agent" offers: the folders a session can work in (this card's project first) and a first message
             c = card_info(unquote(m.group(1)))
@@ -830,6 +900,25 @@ class H(BaseHTTPRequestHandler):
             with open(st["transcript"], "a") as f:
                 f.write(json.dumps({"type": "custom-title", "customTitle": title, "sessionId": st["sid"]}, separators=(",", ":")) + "\n")
             return self.send(200, json.dumps({"ok": True, "title": title}))
+        m = re.match(r"^/api/agent/([^/]+)/fork$", self.path.split("?")[0])
+        if m:   # split a session: a new Orca tab with `claude --resume <id> --fork-session`, same folder, all its context
+            cid = unquote(m.group(1)); c = card_info(cid); rows = card_sessions(c) if c else []
+            want = self.query("pid"); row = next((r for r in rows if r["pid"] == want), rows[0] if rows else None)
+            if not row: return self.send(404, json.dumps({"error": "No session on this task to fork."}))
+            st = row["st"]
+            if not (st["sid"] and st["transcript"]): return self.send(409, json.dumps({"error": "This session can't be forked (its conversation file is gone)."}))
+            d = json.loads(self.body() or b"{}")
+            text = " ".join(str(d.get("text") or "").split())[:4000]
+            cwd = st["agent"].get("cwd") or st["rec"].get("cwd") or transcript_cwd(st["transcript"]) or os.path.expanduser("~")
+            import shlex
+            cmd = f"claude --resume {shlex.quote(st['sid'])} --fork-session" + (f" {shlex.quote(text)}" if text else "")
+            title = ("⑂ " + (row["title"] or c.get("title") or "Claude"))[:40]
+            r = orca("terminal", "create", "--worktree", f"path:{cwd}", "--title", title, "--command", cmd)
+            if not r.get("ok"): r = orca("terminal", "create", "--title", title, "--command", f"cd {shlex.quote(cwd)} && {cmd}")
+            if not r.get("ok"): return self.send(502, json.dumps({"ok": False, "error": f"Orca couldn't open it: {orca_err(r)}"}))
+            t = (r.get("result") or {}).get("terminal") or {}
+            if t.get("handle") or t.get("tabId"): expect_link(t.get("handle"), t.get("tabId"), cid)   # the fork joins this card once it talks
+            return self.send(200, json.dumps({"ok": True}))
         m = re.match(r"^/api/agent/([^/]+)/resume", self.path)
         if m:   # turn an ended session back on: a new Orca tab running `claude --resume <id>` in its own folder
             cid = unquote(m.group(1)); c = card_info(cid); rows = card_sessions(c) if c else []

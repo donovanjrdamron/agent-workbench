@@ -245,6 +245,7 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .ag-start .go:disabled{opacity:.5}
 .ag-start .cancel{color:var(--muted);font-size:12.5px;padding:6px 8px;border-radius:8px}
 .ag-start .wait{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.ag-start .fork-note{flex:1;min-width:0;color:var(--faint);font-size:12px}
 .ag-new{color:var(--muted);font-size:12px;padding:3px 8px;border-radius:6px;flex-shrink:0}
 .ag-new:hover{background:var(--hover,rgba(0,0,0,.05));color:var(--text)}
 .ag-on{background:var(--text);color:var(--bg);border-radius:8px;padding:5px 12px;font-weight:500;flex-shrink:0}
@@ -254,6 +255,12 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* while the agent works: one line at the end of the chat, as in ChatGPT */
 .ag-cur{display:none}
+button.ag-think{border:0;font:inherit;font-size:13.5px;cursor:pointer;text-align:left}
+.ag-bgbox{align-self:stretch;display:flex;flex-direction:column;gap:6px;margin:-2px 0 2px}
+.bg-t{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12.5px}
+.bg-h{display:flex;gap:8px;align-items:baseline} .bg-h b{flex:1;min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .bg-h span{color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums}
+.bg-t pre{margin:6px 0 0;max-height:150px;overflow:auto;font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);white-space:pre-wrap;word-break:break-all}
+.bg-none{color:var(--faint)}
 .ag-think{align-self:flex-start;padding:2px 4px;font-size:13.5px;color:var(--muted);
   background:linear-gradient(90deg,var(--muted) 0%,var(--muted) 35%,var(--text) 50%,var(--muted) 65%,var(--muted) 100%);background-size:300% 100%;
   -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:shine 2.4s linear infinite}
@@ -1312,6 +1319,16 @@ async function mountAgent(c){
   const box = document.getElementById("agentbox");
   let pick = null; try{ pick = localStorage.getItem(pickKey(c.id)); }catch(e){}
   let d = null, starting = 0;
+  // the background tasks it left running: click the line to see each one's latest output
+  let bgOpen = false, bgHtml = `<div class="bg-t">Loading…</div>`, bgTimer = 0;
+  const loadBg = async () => {
+    if(!bgTimer) bgTimer = setInterval(() => { if(!box.isConnected || !bgOpen || !d?.bg){ clearInterval(bgTimer); bgTimer = 0; return; } loadBg(); }, 3000);
+    const j = await fetch(`/api/agent/${encodeURIComponent(c.id)}/bg?pid=${encodeURIComponent(d?.pid || "")}`).then(r => r.json()).catch(() => ({tasks: []}));
+    const ago = t => { const s = Math.max(0, (Date.now() - Date.parse(t)) / 1000); return s < 60 ? Math.round(s) + "s" : s < 3600 ? Math.floor(s / 60) + "m " + String(Math.round(s % 60)).padStart(2, "0") + "s" : Math.floor(s / 3600) + "h " + Math.round(s % 3600 / 60) + "m"; };
+    bgHtml = j.tasks.length ? j.tasks.map(t => `<div class="bg-t"><div class="bg-h"><b>${esc(t.label)}</b>${t.since ? `<span>${ago(t.since)}</span>` : ""}</div>${t.output ? `<pre>${esc(t.output)}</pre>` : `<div class="bg-none">No output yet</div>`}</div>`).join("")
+      : `<div class="bg-t bg-none">They were started outside this conversation's record, so there are no details to show.</div>`;
+    const el = box.querySelector(".ag-bgbox"); if(el){ el.innerHTML = bgHtml; el.querySelectorAll("pre").forEach(p => p.scrollTop = p.scrollHeight); }
+  };
   let sent = [], sentAt = 0;   // messages you just sent, shown at once until the session's own record has them
   // working, or you just sent something it hasn't answered yet: show Thinking (and Stop) straight away
   const busy = () => d && (d.state === "working" || (d.state !== "ended" && (sent.length || (Date.now() - sentAt < 30000 && d.messages.at(-1)?.role === "you"))));
@@ -1323,7 +1340,8 @@ async function mountAgent(c){
     const all = [...d.messages, ...sent.map(q => ({role: "you", text: q.text, pending: true}))];
     const atBottom = force || list.scrollHeight - list.scrollTop - list.clientHeight < 40 || !list.childElementCount;
     list.innerHTML = (all.map(m => `<div class="ag-m md ${m.role}">${renderMd(m.text)}</div>`).join("") || (busy() ? "" : `<div class="ag-m empty">No messages yet</div>`))
-      + (busy() ? `<div class="ag-think">Thinking</div>` : d.bg ? `<div class="ag-think" title="Commands it started are still running in the background">${d.bg} background task${d.bg > 1 ? "s" : ""} running</div>` : "");
+      + (busy() ? `<div class="ag-think">Thinking</div>` : d.bg ? `<button type="button" class="ag-think ag-bgt" title="See what they're doing">${d.bg} background task${d.bg > 1 ? "s" : ""} running ${bgOpen ? "▾" : "▸"}</button>${bgOpen ? `<div class="ag-bgbox">${bgHtml}</div>` : ""}` : "");
+    const bt = list.querySelector(".ag-bgt"); if(bt) bt.onclick = () => { bgOpen = !bgOpen; if(bgOpen) loadBg(); else { clearInterval(bgTimer); bgTimer = 0; } drawMsgs(); };
     if(atBottom) list.scrollTop = list.scrollHeight;
   };
   const paintGo = () => {
@@ -1379,6 +1397,28 @@ async function mountAgent(c){
     if(!extra) return;
     ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   };
+  // Fork: a new session with this one's whole conversation (claude --resume <id> --fork-session), told what to do next
+  const showFork = () => {
+    if(!d || box.querySelector(".ag-start")) return;
+    starter = true;
+    const el = document.createElement("div"); el.className = "ag-start";
+    el.innerHTML = `<div class="hd">Fork “${esc(sessName(d))}”<span>⌘↵ to fork</span></div>
+      <textarea spellcheck="true" placeholder="What should the fork work on? It starts with everything this session knows. (Optional)"></textarea>
+      <div class="srow"><span class="fork-note">Opens in a new Orca tab, same folder, and joins this task.</span><button class="cancel" type="button">Cancel</button><button class="go" type="button">Fork</button></div>`;
+    const ta = el.querySelector("textarea"), go = el.querySelector(".go");
+    box.prepend(el); ta.focus();
+    const close = () => { el.remove(); starter = false; agentSig = ""; load(); };
+    el.querySelector(".cancel").onclick = close;
+    ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, 320) + "px"; };
+    ta.onkeydown = e => { e.stopPropagation(); if(e.key === "Enter" && (e.metaKey || e.ctrlKey)){ e.preventDefault(); go.click(); } if(e.key === "Escape"){ e.preventDefault(); close(); } };
+    go.onclick = async () => {
+      go.disabled = true; go.textContent = "Forking…";
+      const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/fork?pid=${encodeURIComponent(d.pid)}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: ta.value})}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
+      if(r.error){ alert(r.error); go.disabled = false; go.textContent = "Fork"; return; }
+      el.innerHTML = `<div class="wait">${SPIN} Opening the fork in Orca… it joins this task's sessions as soon as it starts.</div>`;
+      setTimeout(close, 6000);
+    };
+  };
   const load = async () => {
     if(!box.isConnected || openId !== c.id){ stopAgent(); return; }
     let r; try{ r = await (await fetch("/api/agent/" + encodeURIComponent(c.id) + (pick ? "?pid=" + encodeURIComponent(pick) : ""))).json(); }catch(e){ return; }
@@ -1394,7 +1434,7 @@ async function mountAgent(c){
     if(fresh){
       box.innerHTML = `<div class="ag">
         <div class="ag-head"><button class="ag-pick" type="button"><span class="ag-cur"></span><span class="ag-title"></span>${CHEV}</button>
-          <button class="ag-new" type="button" title="Start another Claude session on this task">+ New</button><button class="ag-open" type="button" title="Jump to this terminal in Orca">Open ↗</button></div>
+          <button class="ag-new ag-forkb" type="button" title="Fork this session: a new one in Orca with all of this conversation, to do another part of the job">⑂ Fork</button><button class="ag-new" type="button" title="Start another Claude session on this task">+ New</button><button class="ag-open" type="button" title="Jump to this terminal in Orca">Open ↗</button></div>
         <div class="ag-msgs"></div>
         <div class="ag-grow" title="Drag to make the chat taller or shorter (double-click resets)"></div>
         <div class="ag-off"><span>This session is offline.</span><button class="ag-on" type="button">Turn on</button></div>
@@ -1458,7 +1498,8 @@ async function mountAgent(c){
           else { setTimeout(load, 500); setTimeout(load, 1500); }
         } catch(e) { sent = sent.filter(x => x !== q); drawMsgs(); if(!ta.value) { ta.value = text; ta.oninput(); } }
       };
-      box.querySelector(".ag-new").onclick = () => showStarter(true);
+      box.querySelector(".ag-new:not(.ag-forkb)").onclick = () => showStarter(true);
+      box.querySelector(".ag-forkb").onclick = () => showFork();
       const grow = box.querySelector(".ag-grow");
       grow.onpointerdown = e => {
         e.preventDefault(); grow.setPointerCapture(e.pointerId); grow.classList.add("drag");

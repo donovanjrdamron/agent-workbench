@@ -12,6 +12,8 @@ A local setup for running lots of Claude Code sessions at once without losing tr
   - Each Claude session on a card shows its chat, with a shimmering "Thinking" line while it works. Grey means offline.
   - You can send it messages and `/commands` (with suggestions as you type), attach files, stop it, or rename it with a double-click.
   - Click an offline session to turn it back on.
+  - **⑂ Fork** splits a session: a new one in Orca with its whole conversation (`claude --resume <id> --fork-session`), told what to do next, and it joins the same task.
+  - When a session leaves commands running in the background, the chat says so; click it to see each one's latest output.
   - Needs [Orca](https://github.com/stablyai/orca) terminals.
 - **Studio** (http://127.0.0.1:4517): a canvas over plain HTML design files.
   - Agents write the HTML. You edit it like Figma: click anything, drag it anywhere (between frames, onto the board, into an email), resize, rotate, retype and restyle. Your edits are written back into the file, and the `studio` CLI tells agents exactly what you changed.
