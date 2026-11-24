@@ -171,8 +171,8 @@ export function AgentPanel() {
   const send = async (e?: React.FormEvent) => {
     e?.preventDefault()
     // empty box while it works: the button is Stop (Esc, as in the terminal)
-    const t = !text.trim() && state === 'working' ? '\u001b' : text.trim()
-    if (!t || busy) return
+    const t = !text.trim() && thinking ? '\u001b' : text.trim()
+    if (!t || (busy && t === '\u001b')) return
     const q = t === '\u001b' ? null : { text: t, n: norm(t), at: Date.now(), k: `${cur.cid}:${cur.pid}` }
     if (q) { setSent((l) => [...l, q]); setText(''); if (area.current) area.current.style.height = 'auto'; requestAnimationFrame(() => { if (list.current) list.current.scrollTop = list.current.scrollHeight }) }
     setBusy(true)
@@ -248,7 +248,10 @@ export function AgentPanel() {
   const anyWorking = live.some((s) => s.state === 'working')
   const yours = (agent.messages || []).filter((m) => m.role === 'you').slice(-8).map((m) => norm(m.text))
   const waiting = sent.filter((q) => q.k === key && Date.now() - q.at < 120000 && !yours.some((y) => y === q.n || y.includes(q.n.slice(0, 60))))
-  const shown: { role: string; text: string; pending?: boolean }[] = [...(agent.messages || []), ...waiting.map((q) => ({ role: 'you', text: q.text, pending: true }))]
+  const shown: { role: string; text: string }[] = [...(agent.messages || []), ...waiting.map((q) => ({ role: 'you', text: q.text }))]
+  // working, or you just sent something it hasn't answered yet: Thinking (and Stop) show straight away
+  const lastSent = Math.max(0, ...sent.filter((q) => q.k === key).map((q) => q.at))
+  const thinking = state === 'working' || (state !== 'ended' && state !== 'starting' && (waiting.length > 0 || (Date.now() - lastSent < 30000 && shown[shown.length - 1]?.role === 'you')))
   if (!open) return (
     <button className="ag-toggle" onClick={() => toggle(true)} title="Show the Claude sessions working on this">
       <Status s={anyWorking ? 'working' : live.some((s) => s.state !== 'ended') ? 'waiting' : 'ended'} />Claude{live.length > 1 ? ` · ${live.length}` : ''}
@@ -289,9 +292,9 @@ export function AgentPanel() {
         )}
       </div>
       <div className="ag-msgs" ref={list}>
-        {shown.length ? shown.map((m, i) => <div key={i} className={`ag-m ${m.role}${m.pending ? ' pending' : ''}`} dangerouslySetInnerHTML={{ __html: renderMd(m.text) }} />)
-          : state !== 'working' && <div className="ag-m empty">No messages yet</div>}
-        {state === 'working' && <div className="ag-think">Thinking</div>}
+        {shown.length ? shown.map((m, i) => <div key={i} className={`ag-m ${m.role}`} dangerouslySetInnerHTML={{ __html: renderMd(m.text) }} />)
+          : !thinking && <div className="ag-m empty">No messages yet</div>}
+        {thinking && <div className="ag-think">Thinking</div>}
       </div>
       {(state === 'ended' || state === 'starting') && (
         <div className="ag-off">
@@ -347,7 +350,7 @@ export function AgentPanel() {
                 )}
               </div>
             )}
-            <button type="submit" className={`ag-go${!text.trim() && state === 'working' ? ' stop' : ''}`} title={!text.trim() && state === 'working' ? 'Stop (Esc)' : 'Send'} disabled={busy || (!text.trim() && state !== 'working')}>
+            <button type="submit" className={`ag-go${!text.trim() && thinking ? ' stop' : ''}`} title={!text.trim() && thinking ? 'Stop (Esc)' : 'Send'} disabled={!text.trim() && !thinking}>
               <svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 13V3.5M3.8 7.5L8 3.3l4.2 4.2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
           </div>

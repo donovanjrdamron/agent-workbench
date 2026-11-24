@@ -318,7 +318,6 @@ div.drag-ghost { background: rgba(13,153,255,0.12); }
 .ag-clip { display: flex; padding: 4px; margin-left: -4px; border: 0; border-radius: 6px; background: none; color: var(--faint); }
 .ag-clip:hover { background: var(--bg3); color: var(--text); }
 .ag-go { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--text); color: var(--bg); }
-.ag-m.pending { opacity: .6; }
 .ag-think { align-self: flex-start; padding: 2px 4px; font-size: 13px;
   background: linear-gradient(90deg, var(--dim) 0%, var(--dim) 35%, var(--text) 50%, var(--dim) 65%, var(--dim) 100%); background-size: 300% 100%;
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: ag-shine 2.4s linear infinite; }
