@@ -319,22 +319,10 @@ div.drag-ghost { background: rgba(13,153,255,0.12); }
 .ag-clip:hover { background: var(--bg3); color: var(--text); }
 .ag-go { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--text); color: var(--bg); }
 .ag-m.pending { opacity: .6; }
-.ag-act { margin: 0 10px 8px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; flex-shrink: 0; }
-.ag-act .row1 { display: flex; align-items: center; gap: 8px; padding: 7px 7px 7px 10px; cursor: pointer; user-select: none; }
-.ag-act .row1:hover { background: var(--bg2); }
-.ag-act .now { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  background: linear-gradient(90deg, var(--dim) 0%, var(--dim) 40%, var(--text) 50%, var(--dim) 60%, var(--dim) 100%); background-size: 250% 100%;
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: ag-shine 2.2s linear infinite; }
+.ag-think { align-self: flex-start; padding: 2px 4px; font-size: 13px;
+  background: linear-gradient(90deg, var(--dim) 0%, var(--dim) 35%, var(--text) 50%, var(--dim) 65%, var(--dim) 100%); background-size: 300% 100%;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: ag-shine 2.4s linear infinite; }
 @keyframes ag-shine { from { background-position: 100% 0; } to { background-position: 0 0; } }
-.ag-act .time { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-.ag-act .chev { color: var(--faint); flex-shrink: 0; transition: transform .15s; } .ag-act.open .chev { transform: rotate(180deg); }
-.ag-act .stopb { flex-shrink: 0; font-size: 12px; color: var(--dim); background: none; border: 1px solid var(--line); border-radius: 7px; padding: 3px 9px; cursor: pointer; }
-.ag-act .stopb:hover { color: var(--text); border-color: var(--dim); }
-.ag-act .steps { max-height: 200px; overflow-y: auto; border-top: 1px solid var(--line); padding: 6px 10px 8px; }
-.ag-act .st { display: flex; gap: 8px; align-items: center; padding: 3px 0; color: var(--dim); font-size: 12.5px; }
-.ag-act .st::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--faint); flex-shrink: 0; }
-.ag-act .st:last-child { color: var(--text); } .ag-act .st:last-child::before { background: #0d99ff; }
-.ag-act .st span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ag-cmw { position: relative; margin: 0 8px 0 auto; }
 .ag-cm { display: flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg3); color: var(--text); font: 500 12px/1.2 inherit; cursor: pointer; }
 .ag-cm b { min-width: 16px; padding: 0 4px; border-radius: 999px; background: var(--text); color: var(--bg); font-size: 10.5px; line-height: 16px; text-align: center; }

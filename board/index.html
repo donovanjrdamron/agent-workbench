@@ -205,27 +205,12 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .ag-go.stop svg{display:none}.ag-go.stop::after{content:"";width:9px;height:9px;border-radius:2px;background:currentColor}
 .spin{width:13px;height:13px;color:var(--accent);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-/* what the agent is doing right now, under the chat (as in Claude and ChatGPT) */
+/* while the agent works: one line at the end of the chat, as in ChatGPT */
 .ag-cur{display:none}
-.ag-act{margin:0 10px 8px;border:1px solid var(--line);border-radius:10px;font-size:13px;overflow:hidden}
-.ag-act[hidden]{display:none}
-.ag-act .row1{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 10px;cursor:pointer;user-select:none}
-.ag-act .row1:hover{background:var(--hover,rgba(127,127,127,.06))}
-.ag-act .now{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);
-  background:linear-gradient(90deg,var(--muted) 0%,var(--muted) 40%,var(--text) 50%,var(--muted) 60%,var(--muted) 100%);background-size:250% 100%;
-  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:shine 2.2s linear infinite}
+.ag-think{align-self:flex-start;padding:2px 4px;font-size:13.5px;color:var(--muted);
+  background:linear-gradient(90deg,var(--muted) 0%,var(--muted) 35%,var(--text) 50%,var(--muted) 65%,var(--muted) 100%);background-size:300% 100%;
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:shine 2.4s linear infinite}
 @keyframes shine{from{background-position:100% 0}to{background-position:0 0}}
-.ag-act .time{color:var(--faint);font-size:12px;font-variant-numeric:tabular-nums;flex-shrink:0}
-.ag-act .chev{color:var(--faint);transition:transform .15s;flex-shrink:0;display:flex}
-.ag-act.open .chev{transform:rotate(180deg)}
-.ag-act .stopb{flex-shrink:0;font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:7px;padding:3px 9px}
-.ag-act .stopb:hover{color:var(--text);border-color:var(--muted)}
-.ag-act .steps{display:none;max-height:220px;overflow-y:auto;border-top:1px solid var(--line);padding:6px 10px 8px}
-.ag-act.open .steps{display:block}
-.ag-act .st{display:flex;gap:8px;align-items:baseline;padding:3px 0;color:var(--muted);font-size:12.5px}
-.ag-act .st::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--faint);flex-shrink:0;transform:translateY(-2px)}
-.ag-act .st:last-child{color:var(--text)} .ag-act .st:last-child::before{background:var(--accent)}
-.ag-act .st span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ag-grow{height:10px;margin:-4px 0 0;cursor:ns-resize;position:relative}
 .ag-grow::after{content:"";position:absolute;left:50%;top:3px;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:var(--line);transition:background .15s}
 .ag-grow:hover::after,.ag-grow.drag::after{background:var(--muted)}
@@ -1182,7 +1167,8 @@ async function mountAgent(c){
     sent = sent.filter(q => Date.now() - q.at < 120000 && !yours.some(y => y === q.n || y.includes(q.n.slice(0, 60))));
     const all = [...d.messages, ...sent.map(q => ({role: "you", text: q.text, pending: true}))];
     const atBottom = force || list.scrollHeight - list.scrollTop - list.clientHeight < 40 || !list.childElementCount;
-    list.innerHTML = all.map(m => `<div class="ag-m md ${m.role}${m.pending ? " pending" : ""}">${renderMd(m.text)}</div>`).join("") || `<div class="ag-m empty">No messages yet</div>`;
+    list.innerHTML = (all.map(m => `<div class="ag-m md ${m.role}${m.pending ? " pending" : ""}">${renderMd(m.text)}</div>`).join("") || (d.state === "working" ? "" : `<div class="ag-m empty">No messages yet</div>`))
+      + (d.state === "working" ? `<div class="ag-think">Thinking</div>` : "");
     if(atBottom) list.scrollTop = list.scrollHeight;
   };
   const paintGo = () => {
@@ -1198,23 +1184,6 @@ async function mountAgent(c){
     load();
   };
   let paint = () => {};
-  // the live activity row under the chat: what it is doing now, for how long, its steps (click), and Stop
-  let actOpen = false;
-  const since = () => d?.activity?.since ? Date.parse(d.activity.since) : null;
-  const dur = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + "s" : Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s"; };
-  const paintAct = () => {
-    const el = box.querySelector(".ag-act"); if(!el) return;
-    const on = d && d.state === "working";
-    el.hidden = !on; if(!on) return;
-    const steps = d.activity?.steps || [];
-    el.querySelector(".now").textContent = steps.length ? steps[steps.length - 1].label + "…" : "Thinking…";
-    const t0 = since(); el.querySelector(".time").textContent = t0 ? dur(Date.now() - t0) : "";
-    el.classList.toggle("open", actOpen);
-    const list = el.querySelector(".steps");
-    const html = steps.length ? steps.map(x => `<div class="st"><span>${esc(x.label)}</span></div>`).join("") : `<div class="st"><span>Thinking</span></div>`;
-    if(list.dataset.h !== html){ list.innerHTML = html; list.dataset.h = html; list.scrollTop = list.scrollHeight; }
-  };
-  const tick = setInterval(() => { if(!box.isConnected){ clearInterval(tick); return; } const t0 = since(), tm = box.querySelector(".ag-act .time"); if(t0 && tm && d?.state === "working") tm.textContent = dur(Date.now() - t0); }, 1000);
   const msgsH = () => { try{ return Number(localStorage.getItem("agentMsgsH")) || 0; }catch(e){ return 0; } };
   const applyH = () => { const h = msgsH(); box.style.setProperty("--ag-h", h ? h + "px" : ""); };
   applyH();
@@ -1263,7 +1232,7 @@ async function mountAgent(c){
     if(launched){ launched = 0; agentSig = ""; box.innerHTML = ""; }
     if(starting && r.state === "ended" && Date.now() - starting < 60000) r.state = "starting";   // Orca is opening it
     else starting = 0;
-    const sig = JSON.stringify([r.pid, r.state, r.title, r.messages, r.canSend, r.sessions, sent.length, r.activity]);
+    const sig = JSON.stringify([r.pid, r.state, r.title, r.messages, r.canSend, r.sessions, sent.length]);
     if(sig === agentSig) return;
     agentSig = sig; d = r;
     const fresh = !box.querySelector(".ag");
@@ -1273,7 +1242,6 @@ async function mountAgent(c){
           <button class="ag-new" type="button" title="Start another Claude session on this task">+ New</button><button class="ag-open" type="button" title="Jump to this terminal in Orca">Open ↗</button></div>
         <div class="ag-msgs"></div>
         <div class="ag-grow" title="Drag to make the chat taller or shorter (double-click resets)"></div>
-        <div class="ag-act" hidden><div class="row1"><span class="spinw">${SPIN}</span><span class="now">Working…</span><span class="time"></span><span class="chev">${CHEV}</span><button class="stopb" type="button" title="Stop (Esc)">Stop</button></div><div class="steps"></div></div>
         <div class="ag-off"><span>This session is offline.</span><button class="ag-on" type="button">Turn on</button></div>
         <form class="ag-send"><textarea rows="1" placeholder="Write a message…  (/commands work too)"></textarea>
           <div class="ag-tools"><button class="ag-clip" type="button" title="Attach files (their path goes in the message)">${CLIP}</button>
@@ -1336,12 +1304,6 @@ async function mountAgent(c){
         } catch(e) { sent = sent.filter(x => x !== q); drawMsgs(); if(!ta.value) { ta.value = text; ta.oninput(); } }
       };
       box.querySelector(".ag-new").onclick = () => showStarter(true);
-      const act = box.querySelector(".ag-act");
-      act.querySelector(".row1").onclick = e => { if(e.target.closest(".stopb")) return; actOpen = !actOpen; paintAct(); };
-      act.querySelector(".stopb").onclick = async () => {
-        await fetch(`/api/agent/${encodeURIComponent(c.id)}/send?pid=${encodeURIComponent(d.pid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({text: "\u001b"})}).catch(()=>{});
-        setTimeout(load, 600);
-      };
       const grow = box.querySelector(".ag-grow");
       grow.onpointerdown = e => {
         e.preventDefault(); grow.setPointerCapture(e.pointerId); grow.classList.add("drag");
@@ -1401,7 +1363,7 @@ async function mountAgent(c){
     }
     paint = () => {
     box.querySelector(".ag-pick .ag-title").textContent = sessName(d) + (d.state === "ended" || d.state === "starting" ? " · " + stText(d.state) : "");
-    paintAct();
+
     box.querySelector(".ag-pick .chev").style.display = d.sessions.length > 1 ? "" : "none";
     box.querySelector(".ag-pick").title = (d.sessions.length > 1 ? `${d.sessions.length} sessions on this task. ` : "") + "Double-click to rename";
     box.querySelector(".ag-send").style.display = d.canSend ? "" : "none";

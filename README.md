@@ -8,7 +8,7 @@ A local setup for running lots of Claude Code sessions at once without losing tr
 - **Today's goal:** a line in the Next column. Cards above it are for today, cards below are for later.
 - **Search Done:** a search bar on the Done column. It finds titles, notes, links, steps, Studio boards and what you asked each session, and it tolerates typos.
 - **Live sessions on every card:**
-  - Each Claude session on a card shows its chat. A green dot means online, a spinner means working, grey means offline.
+  - Each Claude session on a card shows its chat, with a shimmering "Thinking" line while it works. Grey means offline.
   - You can send it messages and `/commands` (with suggestions as you type), attach files, stop it, or rename it with a double-click.
   - Click an offline session to turn it back on.
   - Needs [Orca](https://github.com/stablyai/orca) terminals.
