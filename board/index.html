@@ -97,6 +97,39 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .tabs{display:flex;gap:4px}
 .tab{padding:6px 8px;border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;color:var(--muted);display:flex;gap:6px;align-items:center}
 .tab.on{color:var(--text);border-color:var(--text)}
+.tcount{font-size:11px;color:var(--faint);font-weight:500}
+.tcount.new{color:#fff;background:var(--accent);border-radius:9px;padding:0 6px;line-height:16px}
+/* automations: follow-ups and recurring jobs the agents set up */
+.au{max-width:760px;margin:6px auto 0;display:flex;flex-direction:column;gap:6px}
+.au h4{margin:18px 2px 4px;font-size:12px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
+.au-empty{color:var(--muted);padding:40px 12px;text-align:center;line-height:1.6}
+.au-empty b{color:var(--text);font-weight:500}
+.au-i{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.au-i.off{opacity:.6}
+.au-top{display:flex;gap:12px;align-items:flex-start}
+.au-what{flex:1;min-width:0;font-weight:500;line-height:1.4}
+.au-meta{display:flex;flex-wrap:wrap;gap:6px 12px;color:var(--muted);font-size:12.5px;align-items:center}
+.au-meta a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line);cursor:pointer}
+.au-meta a:hover{color:var(--text)}
+.au-meta .when{color:var(--text)}
+.au-acts{display:flex;gap:2px;flex-shrink:0;white-space:nowrap;align-items:center;opacity:.55;transition:opacity .15s}
+.au-i:hover .au-acts{opacity:1}
+.au-acts button{font-size:12px;color:var(--muted);padding:3px 8px;border-radius:6px}
+.au-acts button:hover{background:var(--hover,rgba(127,127,127,.1));color:var(--text)}
+.au-acts button.del:hover{color:#e5484d}
+.au-res{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-size:13px;line-height:1.5;cursor:pointer}
+.au-res .rh{display:flex;gap:8px;align-items:center;color:var(--faint);font-size:12px;margin-bottom:2px}
+.au-res .rh .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.au-res .rh .bad{color:#e5484d}
+.au-res .rt{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:var(--text)}
+.au-res.open .rt{display:block}
+.au-res .rt p{margin:0 0 6px}
+.au-res .older{display:none;margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
+.au-res.open .older{display:block}
+.au-edit{display:flex;gap:6px;align-items:center}
+.au-edit input{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;background:var(--bg);color:var(--text)}
+.au-edit button{font-size:12.5px;padding:6px 10px;border-radius:8px;background:var(--text);color:var(--bg)}
+.clockb{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;color:var(--muted)}
 .filters{display:flex;gap:4px;padding-bottom:6px;flex-wrap:wrap}
 .chip{padding:2px 8px;border-radius:12px;font-size:13px;color:var(--muted);border:1px solid var(--line)}
 .chip:hover{background:var(--hover)}
@@ -368,6 +401,7 @@ body.peek-sizing .peek{transition:none}
     <div class="tabs">
       <button class="tab on" data-v="board">Board</button>
       <button class="tab" data-v="studio">Studio</button>
+      <button class="tab" data-v="auto">Automations<span class="tcount" id="autocount"></span></button>
     </div>
     <div class="filters" id="filters"></div>
     <button class="newbtn" id="newbtn">New</button>
@@ -522,16 +556,85 @@ function cardHTML(c, hit){
   const n = c.steps?.length||0, d = (c.steps||[]).filter(s=>s.done).length;
   return `<div class="card ${c.status==="Done"?"done":""}" draggable="true" data-id="${c.id}">
     <div class="t">${hit ? hit.title : esc(c.title)||''}</div>${hit?.why ? `<div class="why">${hit.why}</div>` : ""}
-    <div class="meta">${tag(c.brand)}${agents[c.id]?.state==="working"?`<span class="cspin" title="An agent is working on this">${SPIN}</span>`:""}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
+    <div class="meta">${tag(c.brand)}${agents[c.id]?.state==="working"?`<span class="cspin" title="An agent is working on this">${SPIN}</span>`:""}${clockFor(c.id)}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
   </div>`;
+}
+
+/* ---------- automations: follow-ups and recurring jobs the agents set up (card remind) ---------- */
+let autos = [], autoSig = "", autoEdit = null, autoOpen = new Set();
+const CLOCK = `<svg viewBox="0 0 16 16" width="12" height="12"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.6V8l2.3 1.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+const hm = t => new Date(t * 1000).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+const whenTxt = t => {
+  if(!t) return "";
+  const d = new Date(t * 1000), now = new Date(), s = t - Date.now() / 1000;
+  const day = d.toDateString() === now.toDateString() ? "" : (new Date(now.getTime() + 864e5).toDateString() === d.toDateString() ? "tomorrow " : d.toLocaleDateString([], {weekday: "short"}) + " ");
+  const rel = s < 60 ? "now" : s < 3600 ? `in ${Math.round(s / 60)} min` : s < 86400 ? `in ${Math.floor(s / 3600)}h ${Math.round(s % 3600 / 60)}m` : "";
+  return `${day}${hm(t)}${rel ? " · " + rel : ""}`;
+};
+function clockFor(cid){
+  const a = autos.filter(x => x.card === cid && x.status === "active" && x.next).sort((x, y) => x.next - y.next)[0];
+  return a ? `<span class="clockb" title="Automation: ${esc(a.prompt.slice(0, 120))} (${esc(a.every)})">${CLOCK}${hm(a.next)}</span>` : "";
+}
+async function pollAutos(){
+  try{
+    const j = await (await fetch("/api/automations")).json();
+    const sig = JSON.stringify(j);
+    const active = j.items.filter(a => a.status === "active").length, c = $("#autocount");
+    c.textContent = j.unread ? j.unread : active ? " " + active : ""; c.classList.toggle("new", !!j.unread);
+    c.title = j.unread ? `${j.unread} new result${j.unread > 1 ? "s" : ""}` : "";
+    if(sig === autoSig) return;
+    const cardsChanged = JSON.stringify(autos.map(a => [a.card, a.status, a.next])) !== JSON.stringify(j.items.map(a => [a.card, a.status, a.next]));
+    autos = j.items; autoSig = sig;
+    if(view === "auto" && !autoEdit) renderAutos();
+    else if(view === "board" && cardsChanged) later(renderLists);
+  }catch(e){}
+}
+function renderAutos(){
+  const runText = r => `<div class="rh">${r.unread ? `<span class="dot"></span>` : ""}<span class="${r.ok ? "" : "bad"}">${r.ok ? "Reported" : "Didn't finish"}</span> ${new Date(r.ts * 1000).toLocaleString([], {weekday: "short", hour: "numeric", minute: "2-digit"})}</div><div class="rt md">${renderMd(r.text || "")}</div>`;
+  const item = a => {
+    const runs = a.runs || [], last = runs[runs.length - 1], card = board.cards.find(c => c.id === a.card);
+    return `<div class="au-i ${a.status === "active" ? "" : "off"}" data-id="${a.id}">
+      <div class="au-top"><div class="au-what">${esc(a.prompt)}</div>
+        <div class="au-acts">${a.running ? "" : `<button data-a="run" title="Run it now">Run now</button>`}
+          ${a.status === "done" ? "" : `<button data-a="${a.status === "paused" ? "resume" : "pause"}">${a.status === "paused" ? "Resume" : "Pause"}</button>`}
+          <button data-a="edit" title="Change when it runs">${a.status === "done" ? "Again…" : "Time"}</button><button data-a="delete" class="del">Delete</button></div></div>
+      <div class="au-meta">${a.running ? `<span class="when">${SPIN} Running now…</span>` : a.status === "active" && a.next ? `<span class="when">${CLOCK} ${esc(whenTxt(a.next))}</span>` : a.status === "paused" ? "<span>Paused</span>" : "<span>Done</span>"}
+        <span>${esc(a.every === "once" ? "Once" : a.every)}</span>${card || a.card_title ? `<a data-card="${esc(a.card)}">${esc(card?.title || a.card_title)}</a>` : ""}</div>
+      ${autoEdit === a.id ? `<div class="au-edit"><input placeholder="30m, 5:30pm, tomorrow 9am, every day 9am…" value="${esc(a.status === "done" ? "" : a.when || "")}"><button data-a="save">Save</button></div>` : ""}
+      ${last ? `<div class="au-res ${autoOpen.has(a.id) ? "open" : ""}">${runText(last)}${runs.length > 1 ? `<div class="older">${runs.slice(0, -1).reverse().map(runText).join("")}</div>` : ""}</div>` : ""}
+    </div>`;
+  };
+  const act = autos.filter(a => a.status === "active"), paused = autos.filter(a => a.status === "paused"), done = autos.filter(a => a.status === "done").sort((x, y) => ((y.runs || []).at(-1)?.ts || 0) - ((x.runs || []).at(-1)?.ts || 0));
+  $("#view").innerHTML = `<div class="au">${!autos.length ? `<div class="au-empty"><b>Nothing scheduled.</b><br>Ask any agent to "check back in 30 minutes" or "every morning at 9, check …".<br>It sets it up here, and it keeps running even after its card is Done.</div>` : ""}
+    ${act.length ? `<h4>Upcoming</h4>${act.map(item).join("")}` : ""}${paused.length ? `<h4>Paused</h4>${paused.map(item).join("")}` : ""}${done.length ? `<h4>Finished</h4>${done.slice(0, 30).map(item).join("")}` : ""}</div>`;
+  const call = (id, a, body) => fetch(`/api/automations/${id}/${a}`, {method: "POST", body: body ? JSON.stringify(body) : undefined}).then(r => r.json()).then(j => { if(j.error) alert(j.error); autoSig = ""; pollAutos(); });
+  document.querySelectorAll(".au-i").forEach(el => {
+    const id = el.dataset.id;
+    el.querySelectorAll("[data-a]").forEach(b => b.onclick = e => {
+      e.stopPropagation(); const a = b.dataset.a;
+      if(a === "delete"){ if(confirm("Delete this automation?")) call(id, "delete"); return; }
+      if(a === "edit"){ autoEdit = autoEdit === id ? null : id; renderAutos(); el.isConnected || document.querySelector(`.au-i[data-id="${id}"] .au-edit input`)?.focus(); return; }
+      if(a === "save"){ const v = el.querySelector(".au-edit input").value.trim(); autoEdit = null; if(v) call(id, "edit", {when: v}); else renderAutos(); return; }
+      call(id, a);
+    });
+    const inp = el.querySelector(".au-edit input");
+    if(inp){ inp.focus(); inp.onkeydown = e => { e.stopPropagation(); if(e.key === "Enter") el.querySelector('[data-a="save"]').click(); if(e.key === "Escape"){ autoEdit = null; renderAutos(); } }; }
+    const res = el.querySelector(".au-res");
+    if(res) res.onclick = e => { if(e.target.closest("a")) return; autoOpen.has(id) ? autoOpen.delete(id) : autoOpen.add(id); res.classList.toggle("open"); };
+    const cl = el.querySelector("[data-card]"); if(cl) cl.onclick = () => { if(board.cards.some(c => c.id === cl.dataset.card)) openPeek(cl.dataset.card); };
+  });
+  // results count as read once you have had them on screen
+  clearTimeout(renderAutos.t);
+  if(autos.some(a => (a.runs || []).some(r => r.unread))) renderAutos.t = setTimeout(() => { if(view !== "auto") return; autos.filter(a => (a.runs || []).some(r => r.unread)).forEach(a => fetch(`/api/automations/${a.id}/read`, {method: "POST"})); setTimeout(pollAutos, 400); }, 2500);
 }
 
 /* ---------- views ---------- */
 function render(){
   renderFilters();
-  $("#filters").style.visibility = view === "studio" ? "hidden" : "";
+  $("#filters").style.visibility = view === "board" ? "" : "hidden";
+  $("#newbtn").style.visibility = view === "board" ? "" : "hidden";
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.v===view));
-  view === "studio" ? renderStudio() : renderBoard();
+  view === "studio" ? renderStudio() : view === "auto" ? renderAutos() : renderBoard();
   if(openId) renderPeek();
 }
 let hideDone = (() => { try { return localStorage.getItem("hideDone") === "1"; } catch(e) { return false; } })();
@@ -1382,8 +1485,8 @@ async function mountAgent(c){
 }
 
 /* ---------- wiring ---------- */
-document.querySelectorAll(".tab").forEach(t => t.onclick = () => { view = t.dataset.v; try{ localStorage.setItem("view", view); }catch(e){} render(); if(view === "studio") loadStudio(); });
-try{ if(localStorage.getItem("view") === "studio") view = "studio"; }catch(e){}
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => { view = t.dataset.v; try{ localStorage.setItem("view", view); }catch(e){} render(); if(view === "studio") loadStudio(); if(view === "auto") pollAutos(); });
+try{ const v = localStorage.getItem("view"); if(v === "studio" || v === "auto") view = v; }catch(e){}
 $("#newbtn").onclick = () => newCard("Next");
 $("#scrim").onclick = closePeek;
 let escEaten = false;
@@ -1402,7 +1505,7 @@ async function pollBoard(){
     build = build || b;
   }catch(e){}
 }
-load(); pollCanvases(); pollAgents(); setInterval(pollCanvases, 15000); setInterval(pollAgents, 4000); setInterval(pollBoard, 3000);
+load(); pollCanvases(); pollAgents(); pollAutos(); setInterval(pollAutos, 8000); setInterval(pollCanvases, 15000); setInterval(pollAgents, 4000); setInterval(pollBoard, 3000);
 </script>
 </body>
 </html>

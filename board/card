@@ -11,6 +11,12 @@
                                  Design work (static ads, emails, web pages) goes on the brand's permanent board, in a
                                  folder and section of its own; it is picked from the title, or say which: ads|email|web.
                                  With a board name: link the card to that existing Studio board instead.
+  card remind <id|-> <when> "<what>"
+                                 a follow-up or recurring job the user asked for ("hit me back in 30 min", "every morning
+                                 check spend"). when: 30m, 2h, 5:30pm, tomorrow 9am, every 30m, every day 9am, every weekday 9am.
+                                 It resumes this conversation in the background when due (even after this session closes
+                                 or the card is Done) and the user gets the report. Never use your own timers for this.
+  card reminders [id]            the automations (all, or one card's)      card unremind <automation id>   remove one
   card boards                    the Studio boards kept for good (ad creatives, libraries...) and the cards on each.
                                  New work that belongs on one of them goes there: card studio <id> "<board>"
 """
@@ -46,6 +52,39 @@ def link(c):
     agents = [x for x in (c.get("agents") or ([c["agent"]] if c.get("agent") else [])) if str(x.get("pid")) != pid]
     c["agents"] = (agents + [a])[-12:]
     c["agent"] = a
+
+def api(method, path, body=None):
+    import urllib.request, urllib.error
+    port = os.environ.get("BOARD_PORT", "4477")
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method=method, data=json.dumps(body).encode() if body is not None else None)
+    try: return json.loads(urllib.request.urlopen(req, timeout=20).read() or b"{}")
+    except urllib.error.HTTPError as e: return json.loads(e.read() or b"{}") | {"_code": e.code}
+
+def remind(a):
+    """card remind <id|-> <when> "<what to do and report>"   card reminders [id]   card unremind <automation id>"""
+    if a[0] == "remind":
+        if len(a) < 4: print('usage: card remind <card id> <when> "<what to do, and what to report back>"\n  when: 30m, 2h, 5:30pm, tomorrow 9am, every 30m, every day 9am, every weekday 9am'); return 1
+        r = api("POST", "/api/automations", {"card": "" if a[1] == "-" else a[1], "when": a[2], "prompt": " ".join(a[3:]), "pid": claude_pid() or ""})
+        if r.get("error"): print("not set:", r["error"]); return 1
+        x = r["automation"]
+        import datetime as dt
+        at = dt.datetime.fromtimestamp(x["next"]).strftime("%a %-I:%M %p") if x.get("next") else "?"
+        print(f'{x["id"]} set: {x["every"]}, next {at}' + (f' (card: {x["card_title"]})' if x.get("card_title") else ''))
+        print("  It runs in the background by resuming this conversation, even after this session closes or the card is Done.")
+        print("  The user sees the result in the board's Automations tab and as a notification.")
+        return 0
+    if a[0] == "reminders":
+        items = api("GET", "/api/automations").get("items", [])
+        if len(a) > 1: items = [x for x in items if x.get("card") == a[1]]
+        import datetime as dt
+        for x in items:
+            at = dt.datetime.fromtimestamp(x["next"]).strftime("%a %-I:%M %p") if x.get("next") else "-"
+            print(f'{x["id"]} | {x["status"]} | {x["every"]} | next {at} | {x.get("card_title") or ""} | {x["prompt"][:80]}')
+        if not items: print("No automations.")
+        return 0
+    if len(a) < 2: print("usage: card unremind <automation id>"); return 1
+    r = api("POST", f"/api/automations/{a[1]}/delete")
+    print("removed" if r.get("ok") else r.get("error", "failed")); return 0 if r.get("ok") else 1
 
 def studio_board(cid, name=None):
     """Make (or link) the card's Studio board through the board server, which knows how to reach Studio."""
@@ -86,6 +125,7 @@ def main(a):
             on = [c for c in cards if c.get("studio") == k and c["status"] != "Done"]
             print(f'{k}' + (f'  ({len(on)} active: ' + "; ".join(c["title"] for c in on) + ')' if on else ''))
         return 0
+    if a and a[0] in ("remind", "reminders", "unremind"): return remind(a)
     if not a or a[0] not in ("list","start","new","done","link","studio"):
         print(__doc__.strip()); return 1
     if a[0] == "studio":

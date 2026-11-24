@@ -5,6 +5,7 @@ A local setup for running lots of Claude Code sessions at once without losing tr
 - **Work board** (http://127.0.0.1:4477): a kanban with Next · Deep focus · Orchestrating · Done columns. Claude puts a card on it when it starts a task and marks it **Ready for review** when it thinks it's finished. Only you move cards to Done. It also saves the links you'll need into the card's notes.
 - **Start an agent from a card:** open a card and press **Start**. A new Orca tab opens with Claude in the brand's project folder, with the task as its first message. The session links itself to the card. **+ New** adds another session to a card that already has one.
 - **Wider card panel:** drag the card panel's left edge to make it wider. Every card opens at that width; double-click the edge to reset.
+- **Automations:** tell any agent "hit me back in 30 minutes" or "every weekday at 9, check …" and it sets it up itself (`card remind`). When it's due, the board resumes that agent's conversation in the background, so it keeps its context, even after the card is Done or the session is closed. Results land in the **Automations** tab and as a Mac notification; cards with something pending show a small clock. Pause, change the time, run now or delete from the tab.
 - **Today's goal:** a line in the Next column. Cards above it are for today, cards below are for later.
 - **Search Done:** a search bar on the Done column. It finds titles, notes, links, steps, Studio boards and what you asked each session, and it tolerates typos.
 - **Live sessions on every card:**

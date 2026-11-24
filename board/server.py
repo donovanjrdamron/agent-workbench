@@ -363,7 +363,9 @@ def orca(*args):
     try: return json.loads(r.stdout)
     except Exception: return {"ok": False, "error": (r.stderr or r.stdout)[:300]}
 
-import threading
+import threading, sys
+sys.path.insert(0, HERE)
+import automations
 SEND_LOCK = threading.Lock()
 
 def orca_err(r):
@@ -561,6 +563,12 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, open(DATA).read() if os.path.exists(DATA) else '{"cards":[]}')
         if p == "/api/sessions":
             return self.send(200, json.dumps({"now": int(time.time()), "sessions": sessions()}))
+        if p == "/api/automations":   # follow-ups and recurring jobs, newest first, with what they last reported
+            items = automations.load()
+            for a in items: a["every"] = automations.describe(a); a["running"] = a["id"] in automations.RUNNING
+            items.sort(key=lambda a: (a.get("status") != "active", a.get("next") or 9e12))
+            unread = sum(1 for a in items for r in a.get("runs") or [] if r.get("unread"))
+            return self.send(200, json.dumps({"items": items, "unread": unread}))
         if p == "/api/agents":   # status dot for every linked card
             out = {}
             try: cards = json.load(open(DATA))["cards"]
@@ -697,6 +705,45 @@ class H(BaseHTTPRequestHandler):
         self.send(200, b"")
 
     def do_POST(self):
+        if self.path.split("?")[0] == "/api/automations":   # set one up (agents do this through `card remind`)
+            d = json.loads(self.body() or b"{}")
+            c = card_info(d.get("card") or "") if d.get("card") else None
+            sid, cwd = d.get("sid") or "", d.get("cwd") or ""
+            if d.get("pid") and not sid:   # the agent that asked: continue from its own conversation
+                rec = session_rec(str(d["pid"])); sid = rec.get("sid") or ""; cwd = cwd or rec.get("cwd") or ""
+            if not sid and c:   # else the card's latest session
+                ag = (card_agents(c) or [None])[-1]
+                if ag:
+                    st = session_state(ag); sid = st.get("sid") or ""; cwd = cwd or ag.get("cwd") or st["rec"].get("cwd") or ""
+            if not (d.get("prompt") or "").strip(): return self.send(400, json.dumps({"error": "Say what to do."}))
+            try: a = automations.create(c["id"] if c else "", (c or {}).get("title") or d.get("title") or "", d.get("when") or "", d["prompt"], sid, cwd, d.get("by") or "agent")
+            except ValueError as e: return self.send(400, json.dumps({"error": str(e)}))
+            a["every"] = automations.describe(a)
+            return self.send(200, json.dumps({"ok": True, "automation": a}))
+        m = re.match(r"^/api/automations/([^/]+)/(run|pause|resume|delete|read|edit)$", self.path.split("?")[0])
+        if m:
+            aid, act = m.group(1), m.group(2)
+            d = json.loads(self.body() or b"{}") if act == "edit" else {}
+            def change(items):
+                a = next((i for i in items if i["id"] == aid), None)
+                if not a: return False
+                if act == "pause": a["status"] = "paused"
+                if act == "resume":
+                    a["status"] = "active"
+                    if not a.get("next") or a["next"] < time.time(): a["next"] = automations._next(a["sched"], time.time())[1] if a["sched"]["kind"] != "once" else time.time()
+                if act == "delete": items.remove(a)
+                if act == "read":
+                    for r in a.get("runs") or []: r["unread"] = False
+                if act == "edit":
+                    if d.get("prompt", "").strip(): a["prompt"] = d["prompt"].strip()
+                    if d.get("when", "").strip():
+                        a["sched"], a["next"] = automations.parse_when(d["when"]); a["when"] = d["when"]; a["status"] = "active"
+                return True
+            try: found = automations.edit(change)
+            except ValueError as e: return self.send(400, json.dumps({"error": str(e)}))
+            if not found: return self.send(404, json.dumps({"error": "No such automation."}))
+            if act == "run": threading.Thread(target=automations.run, args=(aid,), daemon=True).start()
+            return self.send(200, json.dumps({"ok": True}))
         m = re.match(r"^/api/agent/([^/]+)/start$", self.path.split("?")[0])
         if m:   # start a new Claude session on this card: a new Orca tab in the project folder, the task as its first message
             cid = unquote(m.group(1)); c = card_info(cid)
@@ -1164,4 +1211,5 @@ def serve_tailscale():
 if __name__ == "__main__":
     import sys; sys.path.insert(0, HERE)
     if not os.environ.get("BOARD_NO_TAILSCALE"): serve_tailscale()
+    if not os.environ.get("BOARD_NO_AUTOMATIONS"): automations.start()
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
