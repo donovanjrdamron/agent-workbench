@@ -757,6 +757,23 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return json(res, { results: ids.map((i) => ({ design: i, findings: lint(rt.src.get(i)!.text) })) }), true
   }
   if (p === '/api/source') return text(res, rt.src.get(needId())!.text), true
+  if (p === '/api/reveal-file' && post) {
+    // show a design's file, or a picture it uses, in Finder. Only from this Mac (never the phone), only inside the board.
+    if (!/^(127\.|::1$|::ffff:127\.)/.test(req.socket.localAddress || '')) throw new HttpError(403, 'only on the Mac')
+    let rel = id || ''
+    const src = String(b.src || '')
+    if (src) {
+      if (/^(https?:|data:|blob:)/i.test(src)) throw new HttpError(400, 'That picture is not a file on this Mac (it comes from the web).')
+      const clean = decodeURIComponent(src.split(/[?#]/)[0])
+      rel = path.join(id ? path.dirname(id) : '', clean)
+    }
+    const root = fs.realpathSync(rt.root)
+    const target = path.resolve(root, rel)
+    if (!rel || !(target === root || target.startsWith(root + path.sep))) throw new HttpError(400, 'not a file on this board')
+    if (!fs.existsSync(target)) throw new HttpError(404, `Can't find ${path.basename(target)}`)
+    execFile('/usr/bin/open', ['-R', target])
+    return json(res, { ok: true, path: target }), true
+  }
   // `from`: the design a pasted piece was copied out of, so its links can be made to work from this file
   if (p === '/api/edit' && post && b.from && rt.src.has(b.from)) b.edits = (b.edits || []).map((e: Edit) => (e.kind === 'insert' ? { ...e, html: rebase(rt, e.html, b.from, needId()) } : e))
   if (p === '/api/edit' && post) return json(res, edit(rt, needId(), b.edits || [], { rev: b.rev, by: b.by || 'agent', origin: b.origin })), true
