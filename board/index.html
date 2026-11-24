@@ -99,36 +99,51 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .tab.on{color:var(--text);border-color:var(--text)}
 .tcount{font-size:11px;color:var(--faint);font-weight:500}
 .tcount.new{color:#fff;background:var(--accent);border-radius:9px;padding:0 6px;line-height:16px}
-/* automations: follow-ups and recurring jobs the agents set up */
-.au{max-width:760px;margin:6px auto 0;display:flex;flex-direction:column;gap:6px}
-.au h4{margin:18px 2px 4px;font-size:12px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
-.au-empty{color:var(--muted);padding:40px 12px;text-align:center;line-height:1.6}
-.au-empty b{color:var(--text);font-weight:500}
-.au-i{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
-.au-i.off{opacity:.6}
-.au-top{display:flex;gap:12px;align-items:flex-start}
-.au-what{flex:1;min-width:0;font-weight:500;line-height:1.4}
-.au-meta{display:flex;flex-wrap:wrap;gap:6px 12px;color:var(--muted);font-size:12.5px;align-items:center}
-.au-meta a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line);cursor:pointer}
-.au-meta a:hover{color:var(--text)}
-.au-meta .when{color:var(--text)}
-.au-acts{display:flex;gap:2px;flex-shrink:0;white-space:nowrap;align-items:center;opacity:.55;transition:opacity .15s}
-.au-i:hover .au-acts{opacity:1}
-.au-acts button{font-size:12px;color:var(--muted);padding:3px 8px;border-radius:6px}
-.au-acts button:hover{background:var(--hover,rgba(127,127,127,.1));color:var(--text)}
-.au-acts button.del:hover{color:#e5484d}
-.au-res{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-size:13px;line-height:1.5;cursor:pointer}
-.au-res .rh{display:flex;gap:8px;align-items:center;color:var(--faint);font-size:12px;margin-bottom:2px}
-.au-res .rh .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
-.au-res .rh .bad{color:#e5484d}
-.au-res .rt{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:var(--text)}
-.au-res.open .rt{display:block}
-.au-res .rt p{margin:0 0 6px}
-.au-res .older{display:none;margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
-.au-res.open .older{display:block}
-.au-edit{display:flex;gap:6px;align-items:center}
+/* automations: one clean row each (time · what · ⋯), click a row for the instructions and every report */
+.au{max-width:760px;margin:8px 0 0}
+.au h4{margin:22px 0 6px;font-size:12px;font-weight:600;color:var(--faint)}
+.au h4:first-child{margin-top:4px}
+.au-empty{color:var(--muted);padding:56px 12px;text-align:center;line-height:1.7}
+.au-empty b{color:var(--text);font-weight:600;display:block;margin-bottom:2px}
+.au-list{border:1px solid var(--line);border-radius:12px;overflow:visible}
+.au-i{position:relative;border-top:1px solid var(--line)}
+.au-i:first-child{border-top:0}
+.au-row{display:grid;grid-template-columns:84px 1fr 32px;gap:14px;align-items:start;padding:12px 10px 12px 16px;cursor:pointer;border-radius:12px}
+.au-row:hover{background:var(--hover,rgba(127,127,127,.05))}
+.au-t{font-variant-numeric:tabular-nums;line-height:1.35}
+.au-t b{display:block;font-weight:600;font-size:14px}
+.au-t span{font-size:12px;color:var(--faint)}
+.au-i.off .au-t b,.au-i.off .au-name{color:var(--muted)}
+.au-name{font-weight:500;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.au-sub{font-size:12.5px;color:var(--faint);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.au-sub a{color:var(--faint);cursor:pointer} .au-sub a:hover{color:var(--text);text-decoration:underline}
+.au-prev{margin-top:6px;font-size:13px;color:var(--muted);display:flex;gap:7px;align-items:baseline;min-width:0}
+.au-prev .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex-shrink:0;transform:translateY(-1px)}
+.au-prev .bad{color:#e5484d;flex-shrink:0}
+.au-prev span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.au-more{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--faint);font-size:16px;line-height:1}
+.au-more:hover,.au-more.on{background:var(--hover,rgba(127,127,127,.12));color:var(--text)}
+.au-menu{position:absolute;right:10px;top:42px;z-index:20;min-width:170px;background:var(--bg);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:4px}
+.au-menu button{display:block;margin:0!important;width:100%;text-align:left;padding:7px 10px;border-radius:6px;font-size:13px;color:var(--text)}
+.au-menu button:hover{background:var(--hover,rgba(127,127,127,.12))}
+.au-menu button.del{color:#e5484d}
+.au-menu hr{border:0;border-top:1px solid var(--line);margin:4px 2px!important;height:0;padding:0}
+.au-body{padding:0 16px 14px 114px;font-size:13px;line-height:1.55}
+.au-facts{display:grid;grid-template-columns:80px 1fr;gap:6px 12px;font-size:12.5px;margin-bottom:4px;align-items:baseline}
+.au-facts>span{color:var(--faint)}
+.au-facts a{color:var(--text);cursor:pointer;text-decoration:underline;text-decoration-color:var(--line)}
+.au-facts .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);word-break:break-all}
+.au-sub .tag{font-size:11px;padding:0 5px;vertical-align:1px}
+.au-body .lbl{font-size:11.5px;font-weight:600;color:var(--faint);margin:10px 0 4px}
+.au-body .lbl:first-child{margin-top:0}
+.au-body .ins{color:var(--muted);white-space:pre-wrap;word-break:break-word}
+.au-run{padding:8px 0;border-top:1px solid var(--line)} .au-run:first-of-type{border-top:0}
+.au-run .rh{font-size:12px;color:var(--faint);margin-bottom:2px} .au-run .rh .bad{color:#e5484d}
+.au-run .md p{margin:0 0 6px}
+.au-edit{display:flex;gap:6px;margin-top:8px}
 .au-edit input{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;background:var(--bg);color:var(--text)}
-.au-edit button{font-size:12.5px;padding:6px 10px;border-radius:8px;background:var(--text);color:var(--bg)}
+.au-edit button{font-size:12.5px;padding:6px 12px;border-radius:8px;background:var(--text);color:var(--bg);font-weight:500}
+@media (max-width:600px){.au-row{grid-template-columns:64px 1fr 30px;gap:10px;padding-left:12px}.au-body{padding-left:12px}}
 .clockb{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;color:var(--muted)}
 .filters{display:flex;gap:4px;padding-bottom:6px;flex-wrap:wrap}
 .chip{padding:2px 8px;border-radius:12px;font-size:13px;color:var(--muted);border:1px solid var(--line)}
@@ -588,44 +603,80 @@ async function pollAutos(){
     else if(view === "board" && cardsChanged) later(renderLists);
   }catch(e){}
 }
+let autoMenu = null;
+const tilde = p => String(p || "").replace(/^\/Users\/[^/]+/, "~");
 function renderAutos(){
-  const runText = r => `<div class="rh">${r.unread ? `<span class="dot"></span>` : ""}<span class="${r.ok ? "" : "bad"}">${r.ok ? "Reported" : "Didn't finish"}</span> ${new Date(r.ts * 1000).toLocaleString([], {weekday: "short", hour: "numeric", minute: "2-digit"})}</div><div class="rt md">${renderMd(r.text || "")}</div>`;
+  const plain = t => String(t || "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`#>]+/g, "").replace(/\s+/g, " ").trim();
+  const ago = t => { const s = Date.now() / 1000 - t; return s < 60 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : s < 86400 ? Math.round(s / 3600) + "h ago" : new Date(t * 1000).toLocaleDateString([], {month: "short", day: "numeric"}); };
+  const timeCol = a => {
+    if(a.running) return `<b>Running</b><span>now</span>`;
+    if(a.status === "paused") return `<b>Paused</b><span>${esc(a.every === "once" ? "" : a.every.replace("every ", ""))}</span>`;
+    if(a.status === "done"){ const r = (a.runs || []).at(-1); return `<b>Done</b><span>${r ? esc(ago(r.ts)) : ""}</span>`; }
+    if(!a.next) return `<b>—</b>`;
+    const d = new Date(a.next * 1000), now = new Date(), s = a.next - Date.now() / 1000;
+    const day = d.toDateString() === now.toDateString() ? "" : new Date(now.getTime() + 864e5).toDateString() === d.toDateString() ? "Tomorrow" : d.toLocaleDateString([], {weekday: "short", month: "short", day: "numeric"});
+    const rel = s < 60 ? "now" : s < 3600 ? `in ${Math.round(s / 60)} min` : s < 86400 ? `in ${Math.floor(s / 3600)}h ${Math.round(s % 3600 / 60)}m` : day;
+    return `<b>${hm(a.next)}</b><span>${esc(rel)}</span>`;
+  };
   const item = a => {
-    const runs = a.runs || [], last = runs[runs.length - 1], card = board.cards.find(c => c.id === a.card);
+    const runs = a.runs || [], last = runs.at(-1), card = board.cards.find(c => c.id === a.card);
+    const open = autoOpen.has(a.id);
+    const sub = [a.every === "once" ? (a.status === "done" ? "Ran once" : "Once") : a.every[0].toUpperCase() + a.every.slice(1)];
     return `<div class="au-i ${a.status === "active" ? "" : "off"}" data-id="${a.id}">
-      <div class="au-top"><div class="au-what">${esc(a.prompt)}</div>
-        <div class="au-acts">${a.running ? "" : `<button data-a="run" title="Run it now">Run now</button>`}
-          ${a.status === "done" ? "" : `<button data-a="${a.status === "paused" ? "resume" : "pause"}">${a.status === "paused" ? "Resume" : "Pause"}</button>`}
-          <button data-a="edit" title="Change when it runs">${a.status === "done" ? "Again…" : "Time"}</button><button data-a="delete" class="del">Delete</button></div></div>
-      <div class="au-meta">${a.running ? `<span class="when">${SPIN} Running now…</span>` : a.status === "active" && a.next ? `<span class="when">${CLOCK} ${esc(whenTxt(a.next))}</span>` : a.status === "paused" ? "<span>Paused</span>" : "<span>Done</span>"}
-        <span>${esc(a.every === "once" ? "Once" : a.every)}</span>${card || a.card_title ? `<a data-card="${esc(a.card)}">${esc(card?.title || a.card_title)}</a>` : ""}</div>
-      ${autoEdit === a.id ? `<div class="au-edit"><input placeholder="30m, 5:30pm, tomorrow 9am, every day 9am…" value="${esc(a.status === "done" ? "" : a.when || "")}"><button data-a="save">Save</button></div>` : ""}
-      ${last ? `<div class="au-res ${autoOpen.has(a.id) ? "open" : ""}">${runText(last)}${runs.length > 1 ? `<div class="older">${runs.slice(0, -1).reverse().map(runText).join("")}</div>` : ""}</div>` : ""}
+      <div class="au-row">
+        <div class="au-t">${a.running ? SPIN : ""}${timeCol(a)}</div>
+        <div style="min-width:0"><div class="au-name">${esc(a.title || a.prompt)}</div>
+          <div class="au-sub">${a.brand ? tag(a.brand) + " " : ""}${esc(sub.join(""))}${card || a.card_title ? ` · <a data-card="${esc(a.card)}">${esc(card?.title || a.card_title)}</a>` : ""}</div>
+          ${last && !open ? `<div class="au-prev">${last.unread ? `<i class="dot"></i>` : ""}${last.ok ? "" : `<b class="bad">Didn't finish ·</b>`}<span>${esc(plain(last.text).slice(0, 220))}</span></div>` : ""}
+          ${autoEdit === a.id ? `<div class="au-edit"><input placeholder="30m · 5:30pm · tomorrow 9am · every day 9am" value="${esc(a.status === "done" ? "" : a.when || "")}"><button data-a="save" type="button">Save</button></div>` : ""}
+        </div>
+        <button class="au-more ${autoMenu === a.id ? "on" : ""}" data-a="menu" type="button" title="More">⋯</button>
+      </div>
+      ${autoMenu === a.id ? `<div class="au-menu">
+        ${a.running ? "" : `<button data-a="run">Run now</button>`}
+        <button data-a="edit">${a.status === "done" ? "Schedule again…" : "Change time…"}</button>
+        ${a.status === "done" ? "" : `<button data-a="${a.status === "paused" ? "resume" : "pause"}">${a.status === "paused" ? "Resume" : "Pause"}</button>`}
+        <hr><button data-a="delete" class="del">Delete</button></div>` : ""}
+      ${open ? `<div class="au-body">
+        <div class="au-facts">
+          ${a.brand ? `<span>Brand</span><div>${tag(a.brand)}</div>` : ""}
+          ${card || a.card_title ? `<span>Task</span><div><a data-card="${esc(a.card)}">${esc(card?.title || a.card_title)}</a>${card ? ` · ${esc(card.status)}` : ""}</div>` : ""}
+          <span>Folder</span><div class="mono">${esc(tilde(a.cwd) || "~")}</div>
+          <span>Continues</span><div>${a.session ? `the conversation “${esc(a.session)}”` : a.origin_sid || a.sid ? "the agent's conversation" : "a fresh conversation"}</div>
+          <span>When</span><div>${esc(a.every === "once" ? "Once" : a.every[0].toUpperCase() + a.every.slice(1))}${a.next && a.status === "active" ? ` · next ${esc(new Date(a.next * 1000).toLocaleString([], {weekday: "short", hour: "numeric", minute: "2-digit"}))}` : ""}</div>
+          <span>Set up</span><div>${esc(new Date(a.created * 1000).toLocaleString([], {weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"}))}${a.by === "agent" ? " by the agent" : ""}</div>
+        </div>
+        ${runs.length ? `<div class="lbl">${runs.length > 1 ? "Reports" : "Report"}</div>${runs.slice().reverse().map(r => `<div class="au-run"><div class="rh">${new Date(r.ts * 1000).toLocaleString([], {weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"})}${r.ok ? "" : ` · <span class="bad">didn't finish</span>`}</div><div class="md">${renderMd(r.text || "")}</div></div>`).join("")}` : ""}
+        <div class="lbl">What it will do</div><div class="ins">${esc(a.prompt)}</div></div>` : ""}
     </div>`;
   };
   const act = autos.filter(a => a.status === "active"), paused = autos.filter(a => a.status === "paused"), done = autos.filter(a => a.status === "done").sort((x, y) => ((y.runs || []).at(-1)?.ts || 0) - ((x.runs || []).at(-1)?.ts || 0));
-  $("#view").innerHTML = `<div class="au">${!autos.length ? `<div class="au-empty"><b>Nothing scheduled.</b><br>Ask any agent to "check back in 30 minutes" or "every morning at 9, check …".<br>It sets it up here, and it keeps running even after its card is Done.</div>` : ""}
-    ${act.length ? `<h4>Upcoming</h4>${act.map(item).join("")}` : ""}${paused.length ? `<h4>Paused</h4>${paused.map(item).join("")}` : ""}${done.length ? `<h4>Finished</h4>${done.slice(0, 30).map(item).join("")}` : ""}</div>`;
+  const group = (name, list) => list.length ? `<h4>${name}</h4><div class="au-list">${list.map(item).join("")}</div>` : "";
+  $("#view").innerHTML = `<div class="au">${!autos.length ? `<div class="au-empty"><b>Nothing scheduled</b>Ask any agent to "check back in 30 minutes" or "every morning at 9, check …".<br>It sets it up here, and it keeps running even after its card is Done.</div>` : ""}
+    ${group("Upcoming", act)}${group("Paused", paused)}${group("Finished", done.slice(0, 30))}</div>`;
   const call = (id, a, body) => fetch(`/api/automations/${id}/${a}`, {method: "POST", body: body ? JSON.stringify(body) : undefined}).then(r => r.json()).then(j => { if(j.error) alert(j.error); autoSig = ""; pollAutos(); });
   document.querySelectorAll(".au-i").forEach(el => {
     const id = el.dataset.id;
+    el.querySelector(".au-row").onclick = e => {
+      if(e.target.closest("[data-a], a, input")) return;
+      autoMenu = null; autoOpen.has(id) ? autoOpen.delete(id) : autoOpen.add(id); renderAutos();
+      if(autoOpen.has(id) && autos.find(a => a.id === id)?.runs?.some(r => r.unread)) fetch(`/api/automations/${id}/read`, {method: "POST"}).then(() => setTimeout(pollAutos, 200));
+    };
     el.querySelectorAll("[data-a]").forEach(b => b.onclick = e => {
       e.stopPropagation(); const a = b.dataset.a;
-      if(a === "delete"){ if(confirm("Delete this automation?")) call(id, "delete"); return; }
-      if(a === "edit"){ autoEdit = autoEdit === id ? null : id; renderAutos(); el.isConnected || document.querySelector(`.au-i[data-id="${id}"] .au-edit input`)?.focus(); return; }
+      if(a === "menu"){ autoMenu = autoMenu === id ? null : id; renderAutos(); return; }
+      autoMenu = null;
+      if(a === "delete"){ if(confirm("Delete this automation?")) call(id, "delete"); else renderAutos(); return; }
+      if(a === "edit"){ autoEdit = id; renderAutos(); return; }
       if(a === "save"){ const v = el.querySelector(".au-edit input").value.trim(); autoEdit = null; if(v) call(id, "edit", {when: v}); else renderAutos(); return; }
-      call(id, a);
+      renderAutos(); call(id, a);
     });
     const inp = el.querySelector(".au-edit input");
-    if(inp){ inp.focus(); inp.onkeydown = e => { e.stopPropagation(); if(e.key === "Enter") el.querySelector('[data-a="save"]').click(); if(e.key === "Escape"){ autoEdit = null; renderAutos(); } }; }
-    const res = el.querySelector(".au-res");
-    if(res) res.onclick = e => { if(e.target.closest("a")) return; autoOpen.has(id) ? autoOpen.delete(id) : autoOpen.add(id); res.classList.toggle("open"); };
-    const cl = el.querySelector("[data-card]"); if(cl) cl.onclick = () => { if(board.cards.some(c => c.id === cl.dataset.card)) openPeek(cl.dataset.card); };
+    if(inp){ inp.focus(); inp.select(); inp.onclick = e => e.stopPropagation(); inp.onkeydown = e => { e.stopPropagation(); if(e.key === "Enter") el.querySelector('[data-a="save"]').click(); if(e.key === "Escape"){ autoEdit = null; renderAutos(); } }; }
+    el.querySelectorAll("[data-card]").forEach(cl => cl.onclick = e => { e.stopPropagation(); if(board.cards.some(c => c.id === cl.dataset.card)) openPeek(cl.dataset.card); });
   });
-  // results count as read once you have had them on screen
-  clearTimeout(renderAutos.t);
-  if(autos.some(a => (a.runs || []).some(r => r.unread))) renderAutos.t = setTimeout(() => { if(view !== "auto") return; autos.filter(a => (a.runs || []).some(r => r.unread)).forEach(a => fetch(`/api/automations/${a.id}/read`, {method: "POST"})); setTimeout(pollAutos, 400); }, 2500);
 }
+document.addEventListener("pointerdown", e => { if(autoMenu && !e.target.closest(".au-menu, .au-more")){ autoMenu = null; if(view === "auto") renderAutos(); } });
 
 /* ---------- views ---------- */
 function render(){
@@ -1272,7 +1323,7 @@ async function mountAgent(c){
     const all = [...d.messages, ...sent.map(q => ({role: "you", text: q.text, pending: true}))];
     const atBottom = force || list.scrollHeight - list.scrollTop - list.clientHeight < 40 || !list.childElementCount;
     list.innerHTML = (all.map(m => `<div class="ag-m md ${m.role}">${renderMd(m.text)}</div>`).join("") || (busy() ? "" : `<div class="ag-m empty">No messages yet</div>`))
-      + (busy() ? `<div class="ag-think">Thinking</div>` : "");
+      + (busy() ? `<div class="ag-think">Thinking</div>` : d.bg ? `<div class="ag-think" title="Commands it started are still running in the background">${d.bg} background task${d.bg > 1 ? "s" : ""} running</div>` : "");
     if(atBottom) list.scrollTop = list.scrollHeight;
   };
   const paintGo = () => {
@@ -1336,7 +1387,7 @@ async function mountAgent(c){
     if(launched){ launched = 0; agentSig = ""; box.innerHTML = ""; }
     if(starting && r.state === "ended" && Date.now() - starting < 60000) r.state = "starting";   // Orca is opening it
     else starting = 0;
-    const sig = JSON.stringify([r.pid, r.state, r.title, r.messages, r.canSend, r.sessions, sent.length]);
+    const sig = JSON.stringify([r.pid, r.state, r.title, r.messages, r.canSend, r.sessions, sent.length, r.bg]);
     if(sig === agentSig) return;
     agentSig = sig; d = r;
     const fresh = !box.querySelector(".ag");

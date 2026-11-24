@@ -10,7 +10,7 @@ type State = 'working' | 'waiting' | 'ended' | 'starting'
 type Session = { cid: string; card: string; done: boolean; pid: string; state: State; title: string; linked: number; resumable?: boolean }
 type Cmd = { name: string; description: string; source: string }
 type Activity = { since: string | null; steps: { label: string; ts?: string }[] }
-type Agent = { linked: boolean; pid?: string; state?: State; title?: string; messages?: { role: 'you' | 'claude'; text: string }[]; canSend?: boolean; resumable?: boolean; activity?: Activity | null }
+type Agent = { linked: boolean; pid?: string; state?: State; title?: string; messages?: { role: 'you' | 'claude'; text: string }[]; canSend?: boolean; resumable?: boolean; activity?: Activity | null; bg?: number }
 
 let WB = 'http://127.0.0.1:4477'
 wbBase().then((b) => { WB = b })
@@ -33,7 +33,8 @@ export const Spinner = () => (
 )
 const Status = ({ s }: { s?: State }) => <span className="ag-st">{s === 'working' || s === 'starting' ? <Spinner /> : <span className={`ag-dot ${s === 'ended' ? 'ended' : 'online'}`} />}</span>
 
-export function AgentPanel() {
+/** The Claude chat. `sheet`: full screen on the phone (review mode), closed with `onClose`. */
+export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () => void } = {}) {
   const board = useStore((s) => s.board)
   const comments = useStore((s) => s.comments)
   const [sentAt, setSentAt] = useState(0) // comments you wrote (or replied to) after this went to the agent are "new"
@@ -162,7 +163,12 @@ export function AgentPanel() {
     return () => document.removeEventListener('pointerdown', away, true)
   }, [menu])
 
-  if (!cur || !agent?.linked) return null
+  if (!cur || !agent?.linked) return sheet ? (
+    <aside className="ag-panel sheet">
+      <div className="ag-head"><span className="ag-name" style={{ padding: '0 6px' }}>Claude</span><button className="ag-btn" onClick={onClose}>✕</button></div>
+      <div className="ag-msgs"><div className="ag-m empty">{sessions.length ? 'Loading…' : 'No agent is working on this board yet. Start one from its card on the work board.'}</div></div>
+    </aside>
+  ) : null
   // the live state comes from the conversation itself (fresher than the list, which refreshes every 10s)
   const key = `${cur.cid}:${cur.pid}`
   const state: State = starting === key && agent.state === 'ended' ? 'starting' : agent.state || cur.state
@@ -252,18 +258,18 @@ export function AgentPanel() {
   // working, or you just sent something it hasn't answered yet: Thinking (and Stop) show straight away
   const lastSent = Math.max(0, ...sent.filter((q) => q.k === key).map((q) => q.at))
   const thinking = state === 'working' || (state !== 'ended' && state !== 'starting' && (waiting.length > 0 || (Date.now() - lastSent < 30000 && shown[shown.length - 1]?.role === 'you')))
-  if (!open) return (
+  if (!open && !sheet) return (
     <button className="ag-toggle" onClick={() => toggle(true)} title="Show the Claude sessions working on this">
       <Status s={anyWorking ? 'working' : live.some((s) => s.state !== 'ended') ? 'waiting' : 'ended'} />Claude{live.length > 1 ? ` · ${live.length}` : ''}
     </button>
   )
   return (
-    <aside ref={panel} className={`ag-panel${dropping ? ' dropping' : ''}${geom ? ' free' : ''}`} style={geom ? { left: geom.x, top: geom.y, width: geom.w, height: geom.h } : undefined} onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
+    <aside ref={panel} className={`ag-panel${dropping ? ' dropping' : ''}${geom && !sheet ? ' free' : ''}${sheet ? ' sheet' : ''}`} style={geom && !sheet ? { left: geom.x, top: geom.y, width: geom.w, height: geom.h } : undefined} onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
       onDragOver={(e) => { if (agent.canSend && e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setDropping(true) } }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false) }}
       onDrop={(e) => { setDropping(false); if (!agent.canSend || !e.dataTransfer.files.length) return; e.preventDefault(); e.stopPropagation(); attach([...e.dataTransfer.files]) }}>
-      {EDGES.map((d) => <div key={d} className={`ag-edge ag-${d}`} onPointerDown={(e) => grab(e, d)} />)}
-      <div className="ag-head" ref={menuRef} onPointerDown={(e) => grab(e, null)} title="Drag to move or resize from any edge">
+      {!sheet && EDGES.map((d) => <div key={d} className={`ag-edge ag-${d}`} onPointerDown={(e) => grab(e, d)} />)}
+      <div className="ag-head" ref={menuRef} onPointerDown={(e) => { if (!sheet) grab(e, null) }} title="Drag to move or resize from any edge">
         {renaming !== null ? (
           <input className="ag-rename" autoFocus value={renaming} placeholder="Name this session" onChange={(e) => setRenaming(e.target.value)}
             onFocus={(e) => e.target.select()} onBlur={() => rename(renaming)}
@@ -276,9 +282,9 @@ export function AgentPanel() {
           {live.length > 1 && <svg className="ag-chev" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
         </button>
         )}
-        {state !== 'ended' && state !== 'starting' && <button className="ag-btn" onClick={openTerm} title="Jump to this terminal in Orca">Open ↗</button>}
-        {geom && <button className="ag-btn" onClick={dock} title="Put it back on the right">⇥</button>}
-        <button className="ag-btn" onClick={() => toggle(false)} title="Hide">✕</button>
+        {!sheet && state !== 'ended' && state !== 'starting' && <button className="ag-btn" onClick={openTerm} title="Jump to this terminal in Orca">Open ↗</button>}
+        {geom && !sheet && <button className="ag-btn" onClick={dock} title="Put it back on the right">⇥</button>}
+        <button className="ag-btn" onClick={() => (sheet ? onClose?.() : toggle(false))} title="Hide">✕</button>
         {menu && (
           <div className="ag-menu">
             {live.map((s) => (
@@ -294,7 +300,8 @@ export function AgentPanel() {
       <div className="ag-msgs" ref={list}>
         {shown.length ? shown.map((m, i) => <div key={i} className={`ag-m ${m.role}`} dangerouslySetInnerHTML={{ __html: renderMd(m.text) }} />)
           : !thinking && <div className="ag-m empty">No messages yet</div>}
-        {thinking && <div className="ag-think">Thinking</div>}
+        {thinking ? <div className="ag-think">Thinking</div>
+          : agent.bg ? <div className="ag-think" title="Commands it started are still running in the background">{agent.bg} background task{agent.bg > 1 ? 's' : ''} running</div> : null}
       </div>
       {(state === 'ended' || state === 'starting') && (
         <div className="ag-off">

@@ -196,15 +196,23 @@ export function Canvas() {
     set({ size: { w: el.clientWidth, h: el.clientHeight } })
     const ro = new ResizeObserver(() => set({ size: { w: el.clientWidth, h: el.clientHeight } }))
     ro.observe(el)
+    // Two fingers pan (pinch or ⌘ zooms) wherever the pointer is over the board, also over the toolbar, labels and
+    // anything floating on it: a swipe that starts on one of those must not freeze the board or swipe the page back.
+    // Panels that scroll their own content (the Claude chat, menus, text boxes) keep their scroll.
+    const stage = el.parentElement || el
+    let dx = 0, dy = 0, raf = 0
+    const flush = () => { raf = 0; const v = get().view; set({ view: { ...v, x: v.x - dx, y: v.y - dy } }); dx = 0; dy = 0 }
     const onWheel = (e: WheelEvent) => {
+      const t = e.target as Element | null
+      if (t?.closest?.('.ag-panel, .ag-menu, .ctx, .modal, textarea, input, select, [contenteditable="true"]')) return
       e.preventDefault()
       const r = el.getBoundingClientRect()
-      const s = get()
-      if (e.ctrlKey || e.metaKey) zoomTo(s.view.z * Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top)
-      else set({ view: { ...s.view, x: s.view.x - e.deltaX, y: s.view.y - e.deltaY } })
+      if (e.ctrlKey || e.metaKey) { if (raf) { cancelAnimationFrame(raf); flush() } zoomTo(get().view.z * Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top); return }
+      dx += e.deltaX; dy += e.deltaY
+      if (!raf) raf = requestAnimationFrame(flush) // one redraw per frame, however many wheel events arrive
     }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => { ro.disconnect(); el.removeEventListener('wheel', onWheel) }
+    stage.addEventListener('wheel', onWheel, { passive: false })
+    return () => { ro.disconnect(); stage.removeEventListener('wheel', onWheel); if (raf) cancelAnimationFrame(raf) }
   }, [])
 
   // Only designs near the viewport run as live documents. The rest are placeholders.

@@ -11,7 +11,7 @@
                                  Design work (static ads, emails, web pages) goes on the brand's permanent board, in a
                                  folder and section of its own; it is picked from the title, or say which: ads|email|web.
                                  With a board name: link the card to that existing Studio board instead.
-  card remind <id|-> <when> "<what>"
+  card remind <id|-> <when> "<what>" [--title "<few words>"]
                                  a follow-up or recurring job the user asked for ("hit me back in 30 min", "every morning
                                  check spend"). when: 30m, 2h, 5:30pm, tomorrow 9am, every 30m, every day 9am, every weekday 9am.
                                  It resumes this conversation in the background when due (even after this session closes
@@ -64,7 +64,10 @@ def remind(a):
     """card remind <id|-> <when> "<what to do and report>"   card reminders [id]   card unremind <automation id>"""
     if a[0] == "remind":
         if len(a) < 4: print('usage: card remind <card id> <when> "<what to do, and what to report back>"\n  when: 30m, 2h, 5:30pm, tomorrow 9am, every 30m, every day 9am, every weekday 9am'); return 1
-        r = api("POST", "/api/automations", {"card": "" if a[1] == "-" else a[1], "when": a[2], "prompt": " ".join(a[3:]), "pid": claude_pid() or ""})
+        rest = a[3:]; name = ""
+        if "--title" in rest:   # optional short name for the list: --title "Re-check Parlay tracking"
+            i = rest.index("--title"); name = " ".join(rest[i + 1:i + 2]); rest = rest[:i] + rest[i + 2:]
+        r = api("POST", "/api/automations", {"card": "" if a[1] == "-" else a[1], "when": a[2], "prompt": " ".join(rest), "name": name, "pid": claude_pid() or ""})
         if r.get("error"): print("not set:", r["error"]); return 1
         x = r["automation"]
         import datetime as dt

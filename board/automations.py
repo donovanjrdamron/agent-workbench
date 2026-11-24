@@ -99,10 +99,17 @@ def edit(fn):
         fcntl.flock(lk, fcntl.LOCK_EX)
         items = load(); out = fn(items); save(items); return out
 
-def create(card, card_title, when, prompt, sid, cwd, by="agent"):
+def short_title(prompt):
+    """A few words for the list: the instruction's first sentence, without commands, paths or asides."""
+    t = " ".join(str(prompt).split())
+    t = re.split(r"(?<=[a-z0-9)])[.:;!?](\s|$)|\s+Run:|\s+Then\s", t, maxsplit=1)[0]
+    t = re.sub(r"\s*\([^)]*\)", "", t).strip(" -–,")
+    return t if len(t) <= 64 else t[:61].rsplit(" ", 1)[0] + "…"
+
+def create(card, card_title, when, prompt, sid, cwd, by="agent", title=""):
     sched, nxt = parse_when(when)
-    a = {"id": "a" + uuid.uuid4().hex[:10], "card": card, "card_title": card_title, "prompt": prompt.strip(), "when": when,
-         "sched": sched, "next": nxt, "sid": sid, "cwd": cwd, "status": "active", "created": time.time(), "by": by, "runs": []}
+    a = {"id": "a" + uuid.uuid4().hex[:10], "card": card, "card_title": card_title, "title": (title or "").strip() or short_title(prompt), "prompt": prompt.strip(), "when": when,
+         "sched": sched, "next": nxt, "sid": sid, "origin_sid": sid, "cwd": cwd, "status": "active", "created": time.time(), "by": by, "runs": []}
     edit(lambda items: items.append(a))
     return a
 

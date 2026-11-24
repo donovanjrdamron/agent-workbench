@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { Canvas } from '../canvas/Canvas'
+import { AgentPanel } from '../panels/Agent'
 import { nameOf } from '../canvas/Overlay'
 import { fitAll } from '../commands'
 import { designAt, isRoot, label, pick } from '../dom'
@@ -408,6 +409,7 @@ export function ReviewApp() {
   const r = useReview()
   const [ready, setReady] = useState(false)
   const [fitted, setFitted] = useState('')
+  const [chat, setChat] = useState(false) // the Claude chat, full screen: talk to the agents and send them your comments
   useEffect(() => { document.title = board ? `${board} · Review` : 'Studio review' }, [board])
   useEffect(() => {
     (async () => {
@@ -446,6 +448,10 @@ export function ReviewApp() {
               <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5z" /></svg>
               <span>{open}</span>
             </button>
+            {board && <button className="rv-pill" onClick={() => { rset({ sheet: null, thread: null, composing: false, placing: false }); setChat(true) }} aria-label="Claude">
+              <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M8 1.8l1.5 4.2 4.3 1.4-4.3 1.5L8 13.2 6.5 8.9 2.2 7.4l4.3-1.4z" /></svg>
+              <span>Claude</span>
+            </button>}
           </div>
           {!connected && board && <div className="rv-hint warn">Not connected to the Mac…</div>}
           {r.placing && <div className="rv-hint">Tap where the comment goes</div>}
@@ -464,6 +470,7 @@ export function ReviewApp() {
           {r.thread && <Thread />}
           {r.sheet === 'list' && <List />}
           {r.sheet === 'boards' && <Boards />}
+          {chat && <div className="rv-chat"><AgentPanel sheet onClose={() => setChat(false)} /></div>}
           {toastMsg && <div className="rv-toast">{toastMsg}</div>}
         </div>
       </main>

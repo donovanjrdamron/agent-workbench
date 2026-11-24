@@ -5,7 +5,7 @@
   font-family: 'Inter Variable', Inter, system-ui, sans-serif; font-size: 11.5px; color: var(--text);
 }
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+html, body, #root { height: 100%; margin: 0; overscroll-behavior: none; } /* (no swipe back/forward on a sideways two-finger pan) */
 body { background: #1e1e1e; overflow: hidden; -webkit-font-smoothing: antialiased; user-select: none; }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: default; }
@@ -538,3 +538,11 @@ div.drag-ghost { background: rgba(13,153,255,0.12); }
 .ag-cmd b { font-weight: 600; white-space: nowrap; }
 .ag-cmd span { color: var(--dim); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ag-cmd i { font-style: normal; color: var(--faint); font-size: 11px; flex-shrink: 0; }
+
+/* the Claude chat on the phone: a full-screen sheet over the board */
+.rv-chat { position: absolute; inset: 0; z-index: 40; background: var(--bg); pointer-events: auto; }
+.ag-panel.sheet { position: absolute; inset: 0; width: auto; height: auto; border: 0; border-radius: 0; box-shadow: none; top: env(safe-area-inset-top, 0); }
+.ag-panel.sheet .ag-head { cursor: default; padding: 10px 10px 10px 8px; }
+.ag-panel.sheet .ag-msgs { font-size: 15px; }
+.ag-panel.sheet .ag-send textarea { font-size: 16px; } /* (no zoom-in on focus on iPhone) */
+.ag-panel.sheet .ag-send { margin-bottom: max(10px, env(safe-area-inset-bottom, 0)); }

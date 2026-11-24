@@ -1,6 +1,11 @@
 // The work board (another local server): which cards and Claude sessions work on a Studio board, kept boards, drops.
 let base = 'http://127.0.0.1:4477'
-const ready = fetch('/api/config').then((r) => r.json()).then((c) => { if (c.workboard) base = c.workboard }).catch(() => {})
+// opened from the phone (over Tailscale): the work board answers on the same machine address, its own port
+const remote = !/^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname)
+const ready = fetch('/api/config').then((r) => r.json()).then((c) => {
+  if (c.workboard) base = c.workboard
+  if (remote) base = `${location.protocol}//${location.hostname}:${new URL(base).port || '4477'}`
+}).catch(() => {})
 export async function wb(path: string, init?: RequestInit) { await ready; return fetch(`${base}${path}`, init) }
 export const wbBase = async () => { await ready; return base }
 

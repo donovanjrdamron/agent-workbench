@@ -19,6 +19,14 @@ STUDIO_URL = os.environ.get("STUDIO_URL", "http://127.0.0.1:4517")
 STUDIO_CLI = os.environ.get("STUDIO_CLI") or os.path.join(HERE, "studio")   # install.sh links it to the repo's studio/bin/studio
 STUDIO_HOME = os.environ.get("STUDIO_HOME", os.path.expanduser("~/Studio"))
 CORS_OK = {STUDIO_URL, STUDIO_URL.replace("127.0.0.1", "localhost")}
+def cors_ok(origin, host):
+    """Studio's Claude panel on this Mac, or Studio opened from the phone over Tailscale: same machine name or address as
+    this request came in on, Studio's port. (The Tailscale listener is only reachable from your own devices.)"""
+    if not origin: return False
+    if origin in CORS_OK: return True
+    from urllib.parse import urlparse
+    o = urlparse(origin); h = (host or "").rsplit(":", 1)[0]
+    return o.scheme == "http" and o.port == int(STUDIO_URL.rsplit(":", 1)[1]) and bool(h) and o.hostname == h
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,200}$")
 TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".woff2": "font/woff2",
@@ -341,9 +349,31 @@ def remember_transcripts(c):
     try: update_card(c["id"], fn)
     except Exception: pass
 
+_ps = {"t": 0, "kids": {}}
+def bg_tasks(pid):
+    """Shells a session left running in the background (its own commands run through Claude's shell snapshot, as direct
+    children of the claude process). Its turn can be over while they still work."""
+    import subprocess
+    if not pid: return 0
+    if time.time() - _ps["t"] > 3:
+        kids = {}
+        try:
+            out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True, timeout=5).stdout
+            for ln in out.splitlines():
+                parts = ln.split(None, 2)
+                if len(parts) == 3 and "shell-snapshots/snapshot-" in parts[2]: kids[parts[1]] = kids.get(parts[1], 0) + 1
+        except Exception: pass
+        _ps.update(t=time.time(), kids=kids)
+    return _ps["kids"].get(str(pid), 0)
+
+def live_pid(st):
+    return str((st.get("rec") or {}).get("pid") or (st.get("agent") or {}).get("pid") or "")
+
 def card_state(c):
-    """One dot for a card: working beats waiting beats nothing."""
-    states = [session_state(a)["state"] for a in card_agents(c)]
+    """One dot for a card: working (or background tasks still running) beats waiting beats nothing."""
+    sts = [session_state(a) for a in card_agents(c)]
+    states = [x["state"] for x in sts]
+    if "waiting" in states and any(x["state"] == "waiting" and bg_tasks(live_pid(x)) for x in sts): return "working"
     return "working" if "working" in states else "waiting" if "waiting" in states else ("ended" if states else None)
 
 def agent_state(card):
@@ -499,7 +529,7 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         for k, v in (extra or {}).items(): self.send_header(k, v)
         origin = self.headers.get("Origin")
-        if origin in CORS_OK:                     # Studio's Claude panel reads this card's session
+        if cors_ok(origin, self.headers.get("Host")):   # Studio's Claude panel (on the Mac or the phone) reads this card's session
             self.send_header("Access-Control-Allow-Origin", origin); self.send_header("Vary", "Origin")
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
@@ -565,7 +595,17 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"now": int(time.time()), "sessions": sessions()}))
         if p == "/api/automations":   # follow-ups and recurring jobs, newest first, with what they last reported
             items = automations.load()
-            for a in items: a["every"] = automations.describe(a); a["running"] = a["id"] in automations.RUNNING
+            try: cards = {c["id"]: c for c in json.load(open(DATA))["cards"]}
+            except Exception: cards = {}
+            for a in items:
+                a["every"] = automations.describe(a); a["running"] = a["id"] in automations.RUNNING; a["title"] = a.get("title") or automations.short_title(a.get("prompt", ""))
+                c = cards.get(a.get("card") or "")
+                a["brand"] = (c or {}).get("brand") or ""
+                if c: a["card_title"] = c.get("title") or a.get("card_title")
+                # the conversation it continues, by name (the first one it was set up from)
+                sid = a.get("origin_sid") or a.get("sid") or ""
+                tr = next(iter(glob.glob(os.path.expanduser(f"~/.claude/projects/*/{sid}.jsonl"))), "") if sid else ""
+                a["session"] = session_title(tr) if tr else ""
             items.sort(key=lambda a: (a.get("status") != "active", a.get("next") or 9e12))
             unread = sum(1 for a in items for r in a.get("runs") or [] if r.get("unread"))
             return self.send(200, json.dumps({"items": items, "unread": unread}))
@@ -590,7 +630,8 @@ class H(BaseHTTPRequestHandler):
             st = row["st"]
             msgs, title = transcript_info(st["transcript"]) if st["transcript"] else ([], "")
             act = turn_activity(st["transcript"]) if st["transcript"] and st["state"] == "working" else None
-            return self.send(200, json.dumps({"linked": True, "pid": row["pid"], "state": st["state"], "title": title, "messages": msgs, "activity": act,
+            bg = bg_tasks(live_pid(st)) if st["state"] != "ended" else 0
+            return self.send(200, json.dumps({"linked": True, "pid": row["pid"], "state": st["state"], "title": title, "messages": msgs, "activity": act, "bg": bg,
                                               "canSend": st["state"] != "ended" and bool(st["rec"].get("terminal") or st["agent"].get("terminal")),
                                               "resumable": row["resumable"],
                                               "sessions": [{k: r[k] for k in ("pid", "state", "title", "linked", "resumable")} for r in rows]}))
@@ -688,7 +729,7 @@ class H(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         origin = self.headers.get("Origin")
         self.send_response(204)
-        if origin in CORS_OK:
+        if cors_ok(origin, self.headers.get("Host")):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Access-Control-Allow-Methods", "GET, POST")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
@@ -716,7 +757,7 @@ class H(BaseHTTPRequestHandler):
                 if ag:
                     st = session_state(ag); sid = st.get("sid") or ""; cwd = cwd or ag.get("cwd") or st["rec"].get("cwd") or ""
             if not (d.get("prompt") or "").strip(): return self.send(400, json.dumps({"error": "Say what to do."}))
-            try: a = automations.create(c["id"] if c else "", (c or {}).get("title") or d.get("title") or "", d.get("when") or "", d["prompt"], sid, cwd, d.get("by") or "agent")
+            try: a = automations.create(c["id"] if c else "", (c or {}).get("title") or d.get("title") or "", d.get("when") or "", d["prompt"], sid, cwd, d.get("by") or "agent", d.get("name") or "")
             except ValueError as e: return self.send(400, json.dumps({"error": str(e)}))
             a["every"] = automations.describe(a)
             return self.send(200, json.dumps({"ok": True, "automation": a}))
