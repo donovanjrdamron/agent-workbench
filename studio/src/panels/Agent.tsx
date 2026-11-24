@@ -11,7 +11,9 @@ type State = 'working' | 'waiting' | 'ended' | 'starting'
 type Session = { cid: string; card: string; done: boolean; pid: string; state: State; title: string; linked: number; resumable?: boolean }
 type Cmd = { name: string; description: string; source: string }
 type Activity = { since: string | null; steps: { label: string; ts?: string }[] }
-type Agent = { linked: boolean; pid?: string; state?: State; title?: string; messages?: { role: 'you' | 'claude'; text: string }[]; canSend?: boolean; resumable?: boolean; activity?: Activity | null; bg?: number }
+type Agent = { linked: boolean; pid?: string; state?: State; title?: string; messages?: { role: 'you' | 'claude'; text: string }[]; canSend?: boolean; resumable?: boolean; activity?: Activity | null; bg?: number; ask?: Ask | null }
+type Ask = { id: string; questions: { question: string; header: string; multi: boolean; options: { label: string; description: string }[] }[] }
+type Answer = { pick: number[]; text: string }
 
 let WB = 'http://127.0.0.1:4477'
 wbBase().then((b) => { WB = b })
@@ -40,6 +42,7 @@ const Status = ({ s }: { s?: State }) => <span className="ag-st">{s === 'working
 export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () => void } = {}) {
   const board = useStore((s) => s.board)
   const comments = useStore((s) => s.comments)
+  const askGone = useRef<string | null>(null) // a question you just answered (until the session's record catches up)
   const [sentAt, setSentAt] = useState(0) // comments you wrote (or replied to) after this went to the agent are "new"
   useEffect(() => setSentAt(getSent(board)), [board])
   const [sessions, setSessions] = useState<Session[]>([])
@@ -212,6 +215,7 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
     try {
       const r = await fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/send?pid=${encodeURIComponent(cur.pid)}`, { method: 'POST', body: JSON.stringify({ text: t }) })
       const j = await r.json().catch(() => ({}))
+      if (r.ok && j.answered && q) { setSent((l) => l.filter((x) => x !== q)); if (agent.ask) askGone.current = agent.ask.id }   // it went in as your answer to Claude's question
       if (!r.ok) { if (q) { setSent((l) => l.filter((x) => x !== q)); setText((v) => v || t) } alert(j.error || "Couldn't send") }
     } catch { if (q) { setSent((l) => l.filter((x) => x !== q)); setText((v) => v || t) } } finally { setBusy(false) }
   }
@@ -292,7 +296,15 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
   const shown: { role: string; text: string }[] = [...(agent.messages || []), ...waiting.map((q) => ({ role: 'you', text: q.text }))]
   // working, or you just sent something it hasn't answered yet: Thinking (and Stop) show straight away
   const lastSent = Math.max(0, ...sent.filter((q) => q.k === key).map((q) => q.at))
-  const thinking = state === 'working' || (state !== 'ended' && state !== 'starting' && (waiting.length > 0 || (Date.now() - lastSent < 30000 && shown[shown.length - 1]?.role === 'you')))
+  const ask = agent.ask && agent.ask.id !== askGone.current ? agent.ask : null
+  const answer = async (answers: Answer[]) => {
+    const r = await fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/answer?pid=${encodeURIComponent(cur.pid)}`, { method: 'POST', body: JSON.stringify({ answers }) }).then((r) => r.json()).catch(() => ({ error: 'The work board is not answering' }))
+    if (r.error) { alert(r.error); return false }
+    if (ask) askGone.current = ask.id
+    setAgent((a) => (a ? { ...a } : a))
+    return true
+  }
+  const thinking = !ask && (state === 'working' || (state !== 'ended' && state !== 'starting' && (waiting.length > 0 || (Date.now() - lastSent < 30000 && shown[shown.length - 1]?.role === 'you'))))
   if (!open && !sheet) return (
     <button className="ag-toggle" onClick={() => toggle(true)} title="Show the Claude sessions working on this">
       <Status s={anyWorking ? 'working' : live.some((s) => s.state !== 'ended') ? 'waiting' : 'ended'} />Claude{live.length > 1 ? ` · ${live.length}` : ''}
@@ -336,7 +348,8 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
       <div className="ag-msgs" ref={list}>
         {shown.length ? shown.map((m, i) => <div key={i} className={`ag-m ${m.role}`} dangerouslySetInnerHTML={{ __html: renderMd(m.text) }} />)
           : !thinking && <div className="ag-m empty">No messages yet</div>}
-        {thinking ? <div className="ag-think">Thinking</div>
+        {ask ? <AskCard key={ask.id} ask={ask} onSend={answer} />
+          : thinking ? <div className="ag-think">Thinking</div>
           : agent.bg ? <>
             <button type="button" className="ag-think ag-bgt" onClick={() => setBgOpen((o) => !o)} title="See what they're doing">{agent.bg} background task{agent.bg > 1 ? 's' : ''} running {bgOpen ? '▾' : '▸'}</button>
             {bgOpen && <div className="ag-bgbox">{bgTasks === null ? <div className="bg-t bg-none">Loading…</div> : bgTasks.length ? bgTasks.map((t, i) => (
@@ -422,5 +435,43 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
         </form>
       )}
     </aside>
+  )
+}
+
+// Claude's multiple-choice question (AskUserQuestion), answerable here instead of in the terminal
+function AskCard({ ask, onSend }: { ask: Ask; onSend: (a: Answer[]) => Promise<boolean> }) {
+  const [sel, setSel] = useState<Answer[]>(() => ask.questions.map(() => ({ pick: [], text: '' })))
+  const [busy, setBusy] = useState(false)
+  const quick = ask.questions.length === 1 && !ask.questions[0].multi
+  const go = async (a = sel) => {
+    if (a.some((x) => !x.pick.length && !x.text.trim())) { alert('Answer every question first.'); return }
+    setBusy(true); if (!(await onSend(a.map((x) => ({ ...x, text: x.text.trim() }))))) setBusy(false)
+  }
+  const set = (qi: number, v: Answer) => { const n = sel.map((x, i) => (i === qi ? v : x)); setSel(n); return n }
+  return (
+    <div className="ag-ask">
+      {ask.questions.map((q, qi) => (
+        <div key={qi} className="ag-q">
+          <div className="ag-qh">{q.header || 'Question'}{q.multi ? ' · pick any' : ''}</div>
+          <div className="ag-qt" dangerouslySetInnerHTML={{ __html: renderMd(q.question) }} />
+          {q.options.map((o, oi) => {
+            const on = sel[qi].pick.includes(oi)
+            return (
+              <button key={oi} type="button" className={`ag-opt${on ? ' on' : ''}`} disabled={busy} onClick={() => {
+                const p = sel[qi].pick
+                const n = set(qi, q.multi ? { ...sel[qi], pick: on ? p.filter((x) => x !== oi) : [...p, oi] } : { pick: [oi], text: '' })
+                if (quick) go(n)
+              }}>
+                <i>{q.multi ? (on ? '☑' : '☐') : oi + 1}</i><span><b>{o.label}</b>{o.description && o.description !== o.label && <small>{o.description}</small>}</span>
+              </button>
+            )
+          })}
+          <input className="ag-qo" disabled={busy} value={sel[qi].text} placeholder={quick ? 'Something else… (Enter to send)' : 'Something else…'}
+            onChange={(e) => set(qi, { pick: q.multi || !e.target.value ? sel[qi].pick : [], text: e.target.value })}
+            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); go() } }} />
+        </div>
+      ))}
+      {!quick && <button type="button" className="ag-qgo" disabled={busy} onClick={() => go()}>{busy ? 'Sending…' : ask.questions.length > 1 ? 'Send answers' : 'Send answer'}</button>}
+    </div>
   )
 }

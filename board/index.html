@@ -289,6 +289,18 @@ button.ag-think{border:0;font:inherit;font-size:13.5px;cursor:pointer;text-align
 .ag-tools{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
 .ag-clip{color:var(--faint);padding:4px;margin-left:-4px;border-radius:6px;display:flex}
 .ag-clip:hover{color:var(--muted);background:var(--hover)}
+.ag-ask{align-self:stretch;display:flex;flex-direction:column;gap:12px;margin:2px 0 4px}
+.ag-q{display:flex;flex-direction:column;gap:4px}
+.ag-qh{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+.ag-qt{font-size:14px;margin:0 0 4px}
+.ag-opt{display:flex;gap:10px;align-items:flex-start;text-align:left;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:13.5px;color:var(--text);cursor:pointer}
+.ag-opt:hover{background:var(--hover)} .ag-opt.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--bg))}
+.ag-opt i{font-style:normal;color:var(--faint);min-width:14px;font-size:12.5px;padding-top:1px} .ag-opt.on i{color:var(--accent)}
+.ag-opt span{display:flex;flex-direction:column;gap:2px} .ag-opt small{color:var(--muted);font-size:12.5px;line-height:1.4}
+.ag-qo{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;font-size:13.5px;background:var(--bg);color:var(--text);outline:none}
+.ag-qo:focus{border-color:color-mix(in srgb,var(--text) 22%,transparent)}
+.ag-qgo{align-self:flex-end;padding:6px 14px;border-radius:8px;background:var(--text);color:var(--bg);font:inherit;font-size:13px;font-weight:500}
+.ag-qgo:disabled,.ag-opt:disabled{opacity:.5;cursor:default}
 .ag-tl{display:flex;align-items:center;gap:4px;min-width:0}
 .ag-mode{font-size:12px;color:var(--muted);padding:3px 7px;border-radius:6px;white-space:nowrap}
 .ag-mode:hover{background:var(--hover);color:var(--text)}
@@ -1351,7 +1363,46 @@ async function mountAgent(c){
   };
   let sent = [], sentAt = 0;   // messages you just sent, shown at once until the session's own record has them
   // working, or you just sent something it hasn't answered yet: show Thinking (and Stop) straight away
-  const busy = () => d && (d.state === "working" || (d.state !== "ended" && (sent.length || (Date.now() - sentAt < 30000 && d.messages.at(-1)?.role === "you"))));
+  // Claude's multiple-choice questions (AskUserQuestion): shown in the chat with clickable answers
+  let askSel = {id: null, picks: [], texts: []}, askGone = null, askBusy = false;
+  const asking = () => d && d.ask && d.ask.id !== askGone ? d.ask : null;
+  const askHtml = a => {
+    if(askSel.id !== a.id) askSel = {id: a.id, picks: a.questions.map(() => []), texts: a.questions.map(() => "")};
+    const quick = a.questions.length === 1 && !a.questions[0].multi;
+    return `<div class="ag-ask">${a.questions.map((q, qi) => `<div class="ag-q">
+        <div class="ag-qh">${esc(q.header || "Question")}${q.multi ? " · pick any" : ""}</div><div class="ag-qt">${renderMd(q.question)}</div>
+        ${q.options.map((o, oi) => `<button type="button" class="ag-opt ${askSel.picks[qi].includes(oi) ? "on" : ""}" data-q="${qi}" data-o="${oi}"${askBusy ? " disabled" : ""}>
+          <i>${q.multi ? (askSel.picks[qi].includes(oi) ? "☑" : "☐") : oi + 1}</i><span><b>${esc(o.label)}</b>${o.description && o.description !== o.label ? `<small>${esc(o.description)}</small>` : ""}</span></button>`).join("")}
+        <input class="ag-qo" data-q="${qi}" placeholder="${quick ? "Something else… (Enter to send)" : "Something else…"}" value="${esc(askSel.texts[qi])}"${askBusy ? " disabled" : ""}>
+      </div>`).join("")}
+      ${quick ? "" : `<button type="button" class="ag-qgo"${askBusy ? " disabled" : ""}>${askBusy ? "Sending…" : a.questions.length > 1 ? "Send answers" : "Send answer"}</button>`}</div>`;
+  };
+  const sendAsk = async () => {
+    const a = asking(); if(!a || askBusy) return;
+    const answers = a.questions.map((q, i) => ({pick: askSel.picks[i], text: askSel.texts[i].trim()}));
+    if(answers.some(x => !x.pick.length && !x.text)){ alert("Answer every question first."); return; }
+    askBusy = true; drawMsgs();
+    const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/answer?pid=${encodeURIComponent(d.pid)}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({answers})}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
+    askBusy = false;
+    if(r.error){ alert(r.error); agentSig = ""; load(); return; }
+    askGone = a.id; agentSig = ""; drawMsgs(); setTimeout(load, 800);
+  };
+  const bindAsk = list => {
+    const a = asking(); if(!a) return;
+    list.querySelectorAll(".ag-opt").forEach(b => b.onclick = () => {
+      const qi = +b.dataset.q, oi = +b.dataset.o, q = a.questions[qi], p = askSel.picks[qi];
+      if(q.multi) askSel.picks[qi] = p.includes(oi) ? p.filter(x => x !== oi) : [...p, oi];
+      else { askSel.picks[qi] = [oi]; askSel.texts[qi] = ""; }
+      if(a.questions.length === 1 && !q.multi){ sendAsk(); return; }
+      drawMsgs();
+    });
+    list.querySelectorAll(".ag-qo").forEach(inp => {
+      inp.oninput = () => { const qi = +inp.dataset.q; askSel.texts[qi] = inp.value; if(!a.questions[qi].multi && inp.value) askSel.picks[qi] = []; list.querySelectorAll(`.ag-opt[data-q="${qi}"]`).forEach(b => { if(!a.questions[qi].multi && inp.value) b.classList.remove("on"); }); };
+      inp.onkeydown = e => { e.stopPropagation(); if(e.key === "Enter" && !e.isComposing){ e.preventDefault(); sendAsk(); } };
+    });
+    const go = list.querySelector(".ag-qgo"); if(go) go.onclick = sendAsk;
+  };
+  const busy = () => d && !asking() && (d.state === "working" || (d.state !== "ended" && (sent.length || (Date.now() - sentAt < 30000 && d.messages.at(-1)?.role === "you"))));
   const norm = t => String(t).replace(/\s+/g, " ").trim();
   const drawMsgs = (force) => {
     const list = box.querySelector(".ag-msgs"); if(!list || !d) return;
@@ -1360,7 +1411,8 @@ async function mountAgent(c){
     const all = [...d.messages, ...sent.map(q => ({role: "you", text: q.text, pending: true}))];
     const atBottom = force || list.scrollHeight - list.scrollTop - list.clientHeight < 40 || !list.childElementCount;
     list.innerHTML = (all.map(m => `<div class="ag-m md ${m.role}">${renderMd(m.text)}</div>`).join("") || (busy() ? "" : `<div class="ag-m empty">No messages yet</div>`))
-      + (busy() ? `<div class="ag-think">Thinking</div>` : d.bg ? `<button type="button" class="ag-think ag-bgt" title="See what they're doing">${d.bg} background task${d.bg > 1 ? "s" : ""} running ${bgOpen ? "▾" : "▸"}</button>${bgOpen ? `<div class="ag-bgbox">${bgHtml}</div>` : ""}` : "");
+      + (asking() ? askHtml(asking()) : busy() ? `<div class="ag-think">Thinking</div>` : d.bg ? `<button type="button" class="ag-think ag-bgt" title="See what they're doing">${d.bg} background task${d.bg > 1 ? "s" : ""} running ${bgOpen ? "▾" : "▸"}</button>${bgOpen ? `<div class="ag-bgbox">${bgHtml}</div>` : ""}` : "");
+    bindAsk(list);
     const bt = list.querySelector(".ag-bgt"); if(bt) bt.onclick = () => { bgOpen = !bgOpen; if(bgOpen) loadBg(); else { clearInterval(bgTimer); bgTimer = 0; } drawMsgs(); };
     if(atBottom) list.scrollTop = list.scrollHeight;
   };
@@ -1447,7 +1499,7 @@ async function mountAgent(c){
     if(launched){ launched = 0; agentSig = ""; box.innerHTML = ""; }
     if(starting && r.state === "ended" && Date.now() - starting < 60000) r.state = "starting";   // Orca is opening it
     else starting = 0;
-    const sig = JSON.stringify([r.pid, r.state, r.title, r.messages, r.canSend, r.sessions, sent.length, r.bg]);
+    const sig = JSON.stringify([r.pid, r.state, r.title, r.messages, r.canSend, r.sessions, sent.length, r.bg, r.ask?.id]);
     if(sig === agentSig) return;
     agentSig = sig; d = r;
     const fresh = !box.querySelector(".ag");
@@ -1517,6 +1569,7 @@ async function mountAgent(c){
           const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/send?pid=${encodeURIComponent(d.pid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({text})});
           const j = await r.json().catch(()=>({}));
           if(!r.ok){ sent = sent.filter(x => x !== q); drawMsgs(); if(!ta.value) { ta.value = text; ta.oninput(); } alert(j.error || "Couldn't send"); }
+          else if(j.answered){ sent = sent.filter(x => x !== q); if(d.ask) askGone = d.ask.id; agentSig = ""; drawMsgs(); setTimeout(load, 800); }
           else { setTimeout(load, 500); setTimeout(load, 1500); }
         } catch(e) { sent = sent.filter(x => x !== q); drawMsgs(); if(!ta.value) { ta.value = text; ta.oninput(); } }
       };

@@ -319,6 +319,18 @@ div.drag-ghost { background: rgba(13,153,255,0.12); }
 .ag-clip:hover { background: var(--bg3); color: var(--text); }
 .ag-mode { border: 0; background: none; font: inherit; font-size: 12px; color: var(--dim); padding: 3px 7px; border-radius: 6px; white-space: nowrap; cursor: pointer; }
 .ag-mode:hover { background: var(--bg3); color: var(--text); }
+.ag-ask { align-self: stretch; display: flex; flex-direction: column; gap: 12px; margin: 2px 0 4px; }
+.ag-q { display: flex; flex-direction: column; gap: 4px; }
+.ag-qh { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }
+.ag-qt { font-size: 13.5px; margin: 0 0 4px; }
+.ag-opt { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+.ag-opt:hover { background: var(--bg3); } .ag-opt.on { border-color: var(--accent); }
+.ag-opt i { font-style: normal; color: var(--faint); min-width: 14px; font-size: 12px; padding-top: 1px; } .ag-opt.on i { color: var(--accent); }
+.ag-opt span { display: flex; flex-direction: column; gap: 2px; } .ag-opt small { color: var(--dim); font-size: 12px; line-height: 1.4; }
+.ag-qo { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 13px; background: var(--bg2); color: var(--text); outline: none; }
+.ag-qo:focus { border-color: var(--dim); }
+.ag-qgo { align-self: flex-end; padding: 6px 14px; border: 0; border-radius: 8px; background: var(--text); color: var(--bg); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.ag-qgo:disabled, .ag-opt:disabled { opacity: .5; cursor: default; }
 .ag-tools > .ag-mode { margin-right: auto; } .ag-mode + .ag-cmw { margin-left: 0; }
 .ag-mode[data-m="plan"] { color: #0f7b6c; } .ag-mode[data-m="bypass"] { color: #c4554d; } .ag-mode[data-m="accept"], .ag-mode[data-m="auto"] { color: #9065b0; }
 .ag-go { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--text); color: var(--bg); }

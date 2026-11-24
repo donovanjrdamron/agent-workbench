@@ -207,6 +207,63 @@ def transcript_info(path, limit=14):
         else: rev.append({"role": role, "text": text[:30000]})
     return list(reversed(rev)), custom or title
 
+def pending_ask(path):
+    """The question Claude is asking right now (AskUserQuestion waiting for an answer), or None."""
+    done, n = set(), 0
+    for raw in reverse_lines(path):
+        n += 1
+        if n > 400: return None
+        if len(raw) > 3_000_000: continue
+        if b'"tool_result"' in raw or b'AskUserQuestion' in raw or b'"type":"user"' in raw:
+            try: d = json.loads(raw)
+            except Exception: continue
+            if d.get("isSidechain") or d.get("isMeta"): continue
+            c = (d.get("message") or {}).get("content")
+            if d.get("type") == "user":
+                if isinstance(c, str) and user_text(c): return None          # you have written since: nothing pending
+                for b in c if isinstance(c, list) else []:
+                    if isinstance(b, dict) and b.get("type") == "tool_result": done.add(b.get("tool_use_id"))
+                    if isinstance(b, dict) and b.get("type") == "text" and user_text(b.get("text", "")): return None
+            elif d.get("type") == "assistant":
+                for b in c if isinstance(c, list) else []:
+                    if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "AskUserQuestion":
+                        if b.get("id") in done: return None
+                        qs = (b.get("input") or {}).get("questions") or []
+                        return {"id": b.get("id"), "questions": [{"question": q.get("question", ""), "header": q.get("header", ""), "multi": bool(q.get("multiSelect")),
+                                                                  "options": [{"label": o.get("label", ""), "description": o.get("description", "")} for o in q.get("options") or []]} for q in qs]}
+    return None
+
+def screen_tail(term, n=40):
+    r = orca("terminal", "read", "--terminal", term, "--limit", str(n), "--json")
+    return ((r.get("result") or {}).get("terminal") or {}).get("tail") or []
+def asking_on_screen(term):
+    t = " ".join(" ".join(screen_tail(term, 14)).split())     # a narrow terminal wraps the footer
+    return "Esc to cancel" in t and ("Enter to select" in t or "Submit answers" in t) or ("Submit answers" in t and "Review your answers" in t)
+
+def answer_ask(term, ask, answers):
+    """Answer Claude's question box by keys, as you would in the terminal: a number picks (or ticks) an option,
+    the "Type something" row takes your own words, → moves on, and the review screen is submitted."""
+    send = lambda t, enter=False: orca("terminal", "send", "--terminal", term, "--text", t, *(["--enter"] if enter else []))
+    qs = ask["questions"]
+    for i, q in enumerate(qs):
+        a = answers[i] if i < len(answers) and isinstance(answers[i], dict) else {}
+        picks = [int(x) for x in (a.get("pick") or []) if str(x).isdigit() and int(x) < len(q["options"])]
+        text = " ".join(str(a.get("text") or "").split())[:2000]
+        if not picks and not text: return "Pick an answer for every question."
+        if q["multi"]:
+            for x in picks: send(str(x + 1)); time.sleep(0.25)
+            if text: send(str(len(q["options"]) + 1)); time.sleep(0.3); send(text); time.sleep(0.2)
+            send("\u001b[C")                                   # → next question (or the review)
+        elif text:
+            send(str(len(q["options"]) + 1)); time.sleep(0.3); send(text); time.sleep(0.2); send("", True)
+        else: send(str(picks[0] + 1))
+        time.sleep(0.5)
+    for _ in range(6):
+        if "Submit answers" in "\n".join(screen_tail(term, 16)): send("1"); break
+        if not asking_on_screen(term): break
+        time.sleep(0.3)
+    return None
+
 def _short(v, n=70):
     v = " ".join(str(v or "").split())
     return v if len(v) <= n else v[:n - 1] + "…"
@@ -731,7 +788,8 @@ class H(BaseHTTPRequestHandler):
             msgs, title = transcript_info(st["transcript"]) if st["transcript"] else ([], "")
             act = turn_activity(st["transcript"]) if st["transcript"] and st["state"] == "working" else None
             bg = bg_tasks(live_pid(st)) if st["state"] != "ended" else 0
-            return self.send(200, json.dumps({"linked": True, "pid": row["pid"], "state": st["state"], "title": title, "messages": msgs, "activity": act, "bg": bg,
+            ask = pending_ask(st["transcript"]) if st["transcript"] and st["state"] != "ended" else None
+            return self.send(200, json.dumps({"linked": True, "pid": row["pid"], "state": st["state"], "title": title, "messages": msgs, "activity": act, "bg": bg, "ask": ask,
                                               "canSend": st["state"] != "ended" and bool(st["rec"].get("terminal") or st["agent"].get("terminal")),
                                               "resumable": row["resumable"],
                                               "sessions": [{k: r[k] for k in ("pid", "state", "title", "linked", "resumable")} for r in rows]}))
@@ -971,6 +1029,20 @@ class H(BaseHTTPRequestHandler):
             if self.query("peek"): return self.send(200, json.dumps({"mode": screen_mode(term)}))
             with SEND_LOCK: mode, err = cycle_mode(term, to)
             return self.send(502 if err else 200, json.dumps({"mode": mode, "error": err}))
+        m = re.match(r"^/api/agent/([^/]+)/answer$", self.path.split("?")[0])
+        if m:   # {"answers": [{"pick": [0]}, {"text": "..."}]}: one per question, in order
+            c = card_info(unquote(m.group(1))); rows = card_sessions(c) if c else []
+            row = next((r for r in rows if r["pid"] == self.query("pid")), None)
+            st = row["st"] if row else None
+            if not st or st["state"] == "ended": return self.send(409, json.dumps({"error": "That Claude session isn't running anymore."}))
+            term = live_term(st)
+            if not term: return self.send(409, json.dumps({"error": "This session wasn't started inside Orca."}))
+            ask = pending_ask(st["transcript"]) if st["transcript"] else None
+            if not ask or not asking_on_screen(term): return self.send(409, json.dumps({"error": "Claude isn't asking anything right now (it may have been answered already)."}))
+            try: answers = json.loads(self.body()).get("answers") or []
+            except Exception: answers = []
+            with SEND_LOCK: err = answer_ask(term, ask, answers)
+            return self.send(400 if err else 200, json.dumps({"ok": not err, "error": err}))
         m = re.match(r"^/api/agent/([^/]+)/(send|open)$", self.path.split("?")[0])   # (?pid= picks the session)
         if m:
             cid, action = unquote(m.group(1)), m.group(2)
@@ -993,6 +1065,11 @@ class H(BaseHTTPRequestHandler):
                 r = orca("terminal", "send", "--terminal", term, "--text", "\u001b")
                 return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": None if r.get("ok") else orca_err(r)}))
             if not text: return self.send(400, json.dumps({"error": "empty"}))
+            ask = pending_ask(st["transcript"]) if st["transcript"] else None
+            if ask and asking_on_screen(term):   # typed into Claude's question box, keys would pick an option by accident
+                if len(ask["questions"]) != 1: return self.send(409, json.dumps({"error": "Claude is asking you something. Answer its questions above first."}))
+                with SEND_LOCK: err = answer_ask(term, ask, [{"text": text}])   # your message becomes your answer, in your own words
+                return self.send(400 if err else 200, json.dumps({"ok": not err, "error": err, "answered": True}))
             with SEND_LOCK:   # one at a time: two messages typed into a terminal at once collide
                 r = orca("terminal", "send", "--terminal", term, "--text", text, "--enter")
                 if not r.get("ok"):   # a hiccup, or the handle went stale between messages: look again and retry once

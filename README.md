@@ -13,6 +13,7 @@ A local setup for running lots of Claude Code sessions at once without losing tr
   - You can send it messages and `/commands` (with suggestions as you type), attach files, stop it, rename it with a double-click, or change its permission mode (Shift+Tab or the mode pill, as in the terminal).
   - Click an offline session to turn it back on.
   - **⑂ Fork** splits a session: a new one in Orca with its whole conversation (`claude --resume <id> --fork-session`), told what to do next, and it joins the same task.
+  - When Claude asks you a multiple-choice question, it shows in the chat: click an answer or type your own. Anything you send while it's asking goes in as your answer, so a message can never pick an option by accident.
   - When a session leaves commands running in the background, the chat says so; click it to see each one's latest output.
   - Needs [Orca](https://github.com/stablyai/orca) terminals.
 - **Studio** (http://127.0.0.1:4517): a canvas over plain HTML design files.
