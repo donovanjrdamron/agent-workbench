@@ -8,7 +8,7 @@ import { Toolbar } from './panels/Toolbar'
 import { AiDialog } from './panels/AiDialog'
 import { ContextMenu } from './canvas/ContextMenu'
 import { AgentPanel } from './panels/Agent'
-import { get, useStore } from './store'
+import { get, set, useStore } from './store'
 import { REVIEW } from './mode'
 import { ReviewApp } from './review/Review'
 
@@ -25,6 +25,23 @@ function Desk() {
   const [fitted, setFitted] = useState('')
   const [ready, setReady] = useState(false)
   const known = useRef<{ board: string; ids: Set<string> } | null>(null)
+  // the side panels open and close (buttons in the top corners, ⌘\ for both); remembered per browser
+  const [sides, setSides] = useState(() => { try { return JSON.parse(localStorage.getItem('studioSides') || '') as { left: boolean; right: boolean } } catch { return { left: true, right: true } } })
+  const toggleSide = (which: 'left' | 'right' | 'both') => setSides((cur) => {
+    const next = which === 'both' ? (cur.left || cur.right ? { left: false, right: false } : { left: true, right: true }) : { ...cur, [which]: !cur[which] }
+    // the canvas keeps its place on screen when the left panel comes or goes
+    if (next.left !== cur.left) { const v = get().view; set({ view: { ...v, x: v.x + (next.left ? -240 : 240) } }) }
+    try { localStorage.setItem('studioSides', JSON.stringify(next)) } catch { /* private window */ }
+    return next
+  })
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== '\\') return
+      e.preventDefault(); toggleSide('both')
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [])
   // the browser tab names the board, so several Studio tabs can be told apart
   useEffect(() => { document.title = board ? `${board} · Studio` : 'Studio' }, [board])
 
@@ -71,9 +88,11 @@ function Desk() {
   }, [board, count])
 
   return (
-    <div className="app">
-      <Left />
+    <div className={`app${sides.left ? '' : ' no-left'}${sides.right ? '' : ' no-right'}`}>
+      {sides.left && <Left />}
       <main className="stage">
+        <button className={`side-btn left${sides.left ? ' on' : ''}`} onClick={() => toggleSide('left')} title={`${sides.left ? 'Hide' : 'Show'} the left panel (⌘\\ for both)`}><SideIcon side="left" /></button>
+        <button className={`side-btn right${sides.right ? ' on' : ''}`} onClick={() => toggleSide('right')} title={`${sides.right ? 'Hide' : 'Show'} the right panel (⌘\\ for both)`}><SideIcon side="right" /></button>
         {board ? <Canvas /> : <div className="loading">{ready && !boards.length ? 'No boards yet. Click + (top left) and point it at a folder of HTML designs.' : ready && boards.every((b) => b.closed) ? 'Every board is closed. Reopen one under Closed boards (top left).' : 'Loading…'}</div>}
         <Toolbar />
         {board && <AgentPanel />}
@@ -94,7 +113,11 @@ function Desk() {
           </div>
         )}
       </main>
-      <Props />
+      {sides.right && <Props />}
     </div>
   )
 }
+
+const SideIcon = ({ side }: { side: 'left' | 'right' }) => (
+  <svg viewBox="0 0 16 16" width="15" height="15"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" /><rect x={side === 'left' ? 2.4 : 10.1} y="3.4" width="3.5" height="9.2" rx="1" fill="currentColor" className="fill" /></svg>
+)

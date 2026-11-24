@@ -284,7 +284,7 @@ function ShadowPanel({ design, els }: { design: string; els: HTMLElement[] }) {
 function Help() {
   return (
     <Section title="How this works">
-      <p className="hint">Each frame is one of the agent's HTML files, shown live. Click a frame to select it and drag to move it. Click again to select something inside, then move, resize or restyle it. Double-click copy to retype it. Changes save into the file, and the agent sees exactly what you changed.</p>
+      <p className="hint">Each frame is one of the agent's HTML files, shown live. Click anything to select it and drag it anywhere, inside a frame or out onto the board. Grab a frame by its name or its background to move the whole frame. Double-click copy to retype it. Changes save into the file, and the agent sees exactly what you changed.</p>
       <dl className="keys">
         <dt>V / H</dt><dd>Move, pan</dd><dt>T</dt><dd>Add text</dd><dt>R / O</dt><dd>Add box, circle</dd><dt>C</dt><dd>Comment for the agent</dd>
         <dt>⌘ click</dt><dd>Select the exact element, even a background</dd><dt>⌫</dt><dd>Delete the element, or the frame</dd><dt>Esc</dt><dd>Select parent</dd><dt>Enter</dt><dd>Edit text</dd>
@@ -353,7 +353,7 @@ export function Props() {
       </Section>
 
       <Section title="Position">
-        {page ? <p className="hint">Position comes from the layout here, so it cannot be dragged.</p> : <div className="row">
+        {page ? <p className="hint">Drag it anywhere on the page. The agent folds your moves back into the layout.</p> : <div className="row">
           <Num label="X" value={at.x} onChange={(v) => moveTo(v, null)} />
           <Num label="Y" value={at.y} onChange={(v) => moveTo(null, v)} />
         </div>}

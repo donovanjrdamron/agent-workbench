@@ -256,7 +256,7 @@ export function Canvas() {
     // a loose piece is resized by its own outline: the handles act on the piece inside
     const lone = s.sel.design && s.designs[s.sel.design]?.loose && !s.sel.sids.length ? piecesOf(s.sel.design) : []
     // just outside a corner: turn the piece about its middle, as in Figma
-    if (t.closest('[data-rotate]') && s.sel.design && !isPage(s.sel.design)) {
+    if (t.closest('[data-rotate]') && s.sel.design) {
       if (lone.length === 1) { select(s.sel.design, [sidOf(lone[0])]); s.sel = get().sel }
       const el = s.sel.sids.length === 1 ? elOf(s.sel.design, s.sel.sids[0]) : null
       const dn = s.sel.design
@@ -268,7 +268,7 @@ export function Canvas() {
       return
     }
     if (handle && lone.length === 1) { select(s.sel.design, [sidOf(lone[0])]); s.sel = get().sel }
-    if (handle && s.sel.design && s.sel.sids.length === 1 && !isPage(s.sel.design)) {
+    if (handle && s.sel.design && s.sel.sids.length === 1) {
       const el = elOf(s.sel.design, s.sel.sids[0])
       if (el) {
         const cs = getComputedStyle(el)
@@ -297,7 +297,7 @@ export function Canvas() {
     if (s.tool === 'section') { drag.current = { kind: 'newsection', p0: p }; return }
     if (s.tool === 'step') { e.preventDefault(); addStep(p); return } // (no default: the new box keeps the keyboard)
     // A selected piece that hangs outside its frame (the frame crops it) can still be grabbed by its box and dragged back in.
-    if (s.tool === 'move' && s.sel.design && s.sel.sids.length && !isPage(s.sel.design) && !designAt(p)) {
+    if (s.tool === 'move' && s.sel.design && s.sel.sids.length && !designAt(p)) {
       const d0 = s.sel.design
       const cur = s.sel.sids.map((x) => elOf(d0, x)).filter(Boolean) as HTMLElement[]
       const bs = cur.map((c) => rawBox(d0, c)) // (its whole box: the part outside the frame is what the user grabs)
@@ -310,17 +310,18 @@ export function Canvas() {
     if (s.tool === 'note') { if (design) addComment(design, p, pick(design, p, false)); return }
     if (s.tool === 'text') {
       const TEXT = 'font-size:48px;font-weight:600;line-height:1.1;white-space:nowrap'
-      if (design && !s.designs[design].loose && !isPage(design)) { const l = local(design, p); insert(design, `<div style="position:absolute;left:${l.x}px;top:${l.y}px;${TEXT}">Text</div>`, true) }
+      if (design && !s.designs[design].loose) { const l = local(design, p); insert(design, `<div style="position:absolute;left:${l.x}px;top:${l.y}px;${TEXT}">Text</div>`, true) }
       else addLoose(`<div style="position:absolute;left:0px;top:0px;${TEXT};color:#ffffff">Text</div>`, { x: p.x, y: p.y, w: 110, h: 54 }, 'text', true)
       return
     }
-    if (s.tool === 'rect' || s.tool === 'ellipse') { drag.current = { kind: 'create', design: design && !s.designs[design].loose && !isPage(design) ? design : null, p0: p, shape: s.tool }; return }
+    if (s.tool === 'rect' || s.tool === 'ellipse') { drag.current = { kind: 'create', design: design && !s.designs[design].loose ? design : null, p0: p, shape: s.tool }; return }
 
     // bare board: a drag draws a selection box around planning objects (shift adds to what is selected)
     if (!design) { const keep = e.shiftKey ? s.isel : []; select(null); if (keep.length) selectItems(keep); drag.current = { kind: 'marquee', design: null, p0: p, keep } as Drag; return }
-    // First click picks the frame. Only an already-selected frame lets you reach inside it.
+    // As in Figma, one click reaches what is inside any frame (its background or its name picks the frame itself).
+    // A loose piece on the board is one thing: the first click takes it whole, the next reaches inside.
     const active = s.sel.design === design
-    let el = active ? pick(design, p, e.metaKey || e.ctrlKey) : null
+    let el = active || !s.designs[design]?.loose ? pick(design, p, e.metaKey || e.ctrlKey) : null
     // A full-bleed photo is skipped by a plain click (it counts as background). But once it IS selected
     // (from the layers list or with ⌘-click), a press on it must keep it and drag it, not drop the selection.
     if (!el && active && s.sel.sids.length) { const under = pick(design, p, true); if (under && s.sel.sids.includes(sidOf(under))) el = under }
@@ -331,7 +332,7 @@ export function Canvas() {
     // As in Figma, a press on what is already selected moves it, also where a plain click would pick something else:
     // on a child of the selected group, or on a transparent spot of a selected cut-out. Not when another piece sits in
     // front of the selection at that point: then the user means that piece.
-    if (active && !isPage(design) && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !(el && s.sel.sids.includes(sidOf(el)))) {
+    if (active && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !(el && s.sel.sids.includes(sidOf(el)))) {
       const cur = s.sel.sids.map((x) => elOf(design, x)).filter(Boolean) as HTMLElement[]
       const f = frames.get(design), dd = s.designs[design]
       const stack = f ? docOf(design)?.elementsFromPoint(p.x - dd.x + f.ox, p.y - dd.y + f.oy) || [] : []
@@ -356,8 +357,6 @@ export function Canvas() {
     select(design, sids)
     const els = sids.map((x) => elOf(design, x)).filter(Boolean) as HTMLElement[]
     if (!els.length) return
-    // Pages are flow layouts: a click selects the element, a drag moves the whole frame.
-    if (isPage(design)) { drag.current = { kind: 'frame', design, p0: p, x0: s.designs[design].x, y0: s.designs[design].y, moved: false }; return }
     drag.current = moveDrag(els, sid, was)
   }
 
@@ -370,7 +369,7 @@ export function Canvas() {
       const t = e.target as HTMLElement
       const lab = t.closest<HTMLElement>('[data-label]')?.dataset.label
       const design = lab || designAt(p)
-      const el = design && design === s.sel.design && !lab && !t.closest('[data-handle]') && !t.closest('[data-rotate]') ? pick(design, p, e.metaKey || e.ctrlKey) : null
+      const el = design && (design === s.sel.design || !s.designs[design]?.loose) && !lab && !t.closest('[data-handle]') && !t.closest('[data-rotate]') ? pick(design, p, e.metaKey || e.ctrlKey) : null
       const next = design ? { design, sid: el ? sidOf(el) : null } : null
       if (next?.design !== s.hover?.design || next?.sid !== s.hover?.sid) set({ hover: next })
       return

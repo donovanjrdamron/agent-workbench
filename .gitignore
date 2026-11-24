@@ -11,3 +11,4 @@ board/__pycache__/
 board/kept.json
 board/permanents.json
 board/studio
+board/projects.json

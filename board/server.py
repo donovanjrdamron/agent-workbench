@@ -78,6 +78,40 @@ def sessions():
         out.append(d)
     return sorted(out, key=lambda d: d.get("ts", 0))
 
+PROJECTS = os.path.join(HERE, "projects.json")   # {brand: folder} the last folder each brand's agents were started in
+def project_folders(brand):
+    """Folders a new session can start in, the best one for this brand first: the one used last for it, else a folder
+    named after it (~/Documents/<Brand> Agents, ~/<Brand>…), else the home folder."""
+    try: saved = json.load(open(PROJECTS))
+    except Exception: saved = {}
+    home = os.path.expanduser("~"); docs = os.path.join(home, "Documents")
+    cands = list(saved.values())
+    for base in (docs, home):
+        try: cands += [os.path.join(base, f) for f in sorted(os.listdir(base)) if not f.startswith(".") and re.search(r"agents?$", f, re.I) and os.path.isdir(os.path.join(base, f))]
+        except OSError: pass
+    cands.append(home)
+    folders = list(dict.fromkeys(f for f in cands if os.path.isdir(f)))
+    b = (brand or "").strip().lower()
+    pick = saved.get(brand or "") if saved.get(brand or "") in folders else None
+    if not pick and b: pick = next((f for f in folders if os.path.basename(f).lower().startswith(b)), None)
+    pick = pick or (folders[0] if folders and folders[0] != home else home)
+    tilde = lambda f: "~" + f[len(home):] if f.startswith(home) else f
+    return [{"path": f, "label": tilde(f)} for f in folders], pick
+def remember_folder(brand, folder):
+    if not brand: return
+    try: saved = json.load(open(PROJECTS))
+    except Exception: saved = {}
+    saved[brand] = folder
+    tmp = PROJECTS + ".tmp"; json.dump(saved, open(tmp, "w"), indent=1); os.replace(tmp, PROJECTS)
+def start_prompt(c):
+    """The first message for a new session: the task, its notes and open steps."""
+    out = [c.get("title") or ""]
+    notes = (c.get("notes") or "").strip()
+    if notes: out += ["", notes]
+    steps = [s.get("text", "").strip() for s in c.get("steps") or [] if not s.get("done") and s.get("text", "").strip()]
+    if steps: out += ["", "Steps:"] + [f"- {t}" for t in steps]
+    return "\n".join(out).strip()
+
 def card_info(cid):
     try:
         for c in json.load(open(DATA))["cards"]:
@@ -202,6 +236,28 @@ def session_title(path):
     title = transcript_info(path, limit=0)[1]
     _titles[path] = (key, title)
     return title
+
+_firsts = {}
+def first_prompt(path):
+    """The first thing the user typed in a session (300 characters), cached per file."""
+    hit = _firsts.get(path)
+    if hit is not None: return hit
+    text = ""
+    try:
+        with open(path, "rb") as f:
+            for _ in range(400):
+                ln = f.readline()
+                if not ln: break
+                if b'"type":"user"' not in ln: continue
+                try: m = json.loads(ln).get("message") or {}
+                except Exception: continue
+                c = m.get("content")
+                t = c if isinstance(c, str) else " ".join(x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text") if isinstance(c, list) else ""
+                t = re.sub(r"<[^>]+>[^<]*</[^>]+>", " ", t).strip()   # skip command/system wrappers
+                if t and not t.startswith(("Caveat:", "[Request interrupted")): text = re.sub(r"\s+", " ", t)[:300]; break
+    except OSError: pass
+    _firsts[path] = text
+    return text
 
 RANK = {"working": 0, "waiting": 0, "ended": 1}
 def card_sessions(c):
@@ -439,6 +495,12 @@ class H(BaseHTTPRequestHandler):
                                               "canSend": st["state"] != "ended" and bool(st["rec"].get("terminal") or st["agent"].get("terminal")),
                                               "resumable": row["resumable"],
                                               "sessions": [{k: r[k] for k in ("pid", "state", "title", "linked", "resumable")} for r in rows]}))
+        m = re.match(r"^/api/agent/([^/]+)/start-info$", p)
+        if m:   # what "Start agent" offers: the folders a session can work in (this card's project first) and a first message
+            c = card_info(unquote(m.group(1)))
+            if not c: return self.send(404, json.dumps({"error": "No such card."}))
+            folders, pick = project_folders(c.get("brand"))
+            return self.send(200, json.dumps({"folders": folders, "folder": pick, "prompt": start_prompt(c)}))
         m = re.match(r"^/api/agent/([^/]+)/commands$", p)
         if m:   # what "/" can complete to in this session's chat box: built-ins, skills, plugins, the project's own
             c = card_info(unquote(m.group(1))); rows = card_sessions(c) if c else []
@@ -474,6 +536,19 @@ class H(BaseHTTPRequestHandler):
             except Exception: cards = []
             c = next((c for c in cards if name and c.get("studio") == name), None)
             return self.send(200, json.dumps({"card": {"id": c["id"], "title": c["title"], "brand": c.get("brand", ""), "status": c.get("status")} if c else None}))
+        if p == "/api/search-index":   # what each Done card's sessions were called and first asked, for the Done search
+            try: cards = json.load(open(DATA))["cards"]
+            except Exception: cards = []
+            out = {}
+            for c in cards:
+                if c.get("status") != "Done": continue
+                bits = []
+                for a in card_agents(c):
+                    tr = a.get("transcript") or session_rec(a.get("pid")).get("transcript") or ""
+                    if tr: bits += [session_title(tr), first_prompt(tr)]
+                bits = [b for b in dict.fromkeys(bits) if b]
+                if bits: out[c["id"]] = bits
+            return self.send(200, json.dumps(out))
         if p == "/api/canvases":   # which cards have a canvas with something on it
             ids = []
             if os.path.isdir(CANVASES):
@@ -531,6 +606,26 @@ class H(BaseHTTPRequestHandler):
         self.send(200, b"")
 
     def do_POST(self):
+        m = re.match(r"^/api/agent/([^/]+)/start$", self.path.split("?")[0])
+        if m:   # start a new Claude session on this card: a new Orca tab in the project folder, the task as its first message
+            cid = unquote(m.group(1)); c = card_info(cid)
+            if not c: return self.send(404, json.dumps({"error": "No such card."}))
+            d = json.loads(self.body() or b"{}")
+            text, cwd = (d.get("prompt") or "").strip(), os.path.expanduser(d.get("folder") or "")
+            if not text: return self.send(400, json.dumps({"error": "Write what the agent should do."}))
+            if not os.path.isdir(cwd): return self.send(400, json.dumps({"error": f"No such folder: {cwd}"}))
+            first = f"{text}\n\n(This is work board card {cid}. Run `~/.claude/scripts/board/card start {cid}` first.)"
+            import shlex
+            title = (c.get("title") or "Claude")[:40]
+            cmd = f"claude {shlex.quote(first)}"
+            r = orca("terminal", "create", "--worktree", f"path:{cwd}", "--title", title, "--command", cmd)
+            if not r.get("ok"):   # not one of Orca's folders: open it in the current one and step into the folder
+                r = orca("terminal", "create", "--title", title, "--command", f"cd {shlex.quote(cwd)} && {cmd}")
+            err = r.get("error"); err = err.get("message") if isinstance(err, dict) else err
+            if r.get("ok"):
+                remember_folder(c.get("brand"), cwd)
+                update_card(cid, lambda card: (card.update({"status": "Orchestrating", "order": -1}), card.pop("today", None)) if card.get("status") in ("Next", "Done") else None)
+            return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": None if r.get("ok") else f"Orca couldn't open it: {err}"}))
         m = re.match(r"^/api/agent/([^/]+)/rename", self.path)
         if m:   # name a session: the same record Claude Code's /rename writes, so /resume lists it by that name too
             cid = unquote(m.group(1)); c = card_info(cid); rows = card_sessions(c) if c else []

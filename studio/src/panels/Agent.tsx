@@ -17,6 +17,7 @@ const pickKey = (board: string) => `studioChatSession:${board}`
 const sentKey = (board: string) => `studioCommentsSent:${board}`
 const getSent = (board: string) => { try { return Number(localStorage.getItem(sentKey(board))) || 0 } catch { return 0 } }
 const one = (t: string) => t.replace(/\s+/g, ' ').trim()
+const norm = one
 const pref = () => { try { return localStorage.getItem('studioChat') !== '0' } catch { return true } }
 const stText = (s?: State) => (s === 'working' ? 'Working…' : s === 'starting' ? 'Turning on…' : s === 'waiting' ? 'Online · waiting on you' : 'Offline')
 const name = (s: { title?: string; card?: string }) => s.title || s.card || 'Untitled session'
@@ -46,6 +47,8 @@ export function AgentPanel() {
   const [at, setAt] = useState(0)
   const [renaming, setRenaming] = useState<string | null>(null) // the name being typed (double-click the session name)
   const [text, setText] = useState('')
+  // what you just sent shows at once; the session's own record catches up a moment later
+  const [sent, setSent] = useState<{ text: string; n: string; at: number; k: string }[]>([])
   const [busy, setBusy] = useState(false)
   const list = useRef<HTMLDivElement>(null)
   const count = useRef(0)
@@ -118,13 +121,14 @@ export function AgentPanel() {
     // empty box while it works: the button is Stop (Esc, as in the terminal)
     const t = !text.trim() && state === 'working' ? '\u001b' : text.trim()
     if (!t || busy) return
+    const q = t === '\u001b' ? null : { text: t, n: norm(t), at: Date.now(), k: `${cur.cid}:${cur.pid}` }
+    if (q) { setSent((l) => [...l, q]); setText(''); if (area.current) area.current.style.height = 'auto'; requestAnimationFrame(() => { if (list.current) list.current.scrollTop = list.current.scrollHeight }) }
     setBusy(true)
     try {
       const r = await fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/send?pid=${encodeURIComponent(cur.pid)}`, { method: 'POST', body: JSON.stringify({ text: t }) })
       const j = await r.json().catch(() => ({}))
-      if (!r.ok) alert(j.error || "Couldn't send")
-      else setText('')
-    } finally { setBusy(false) }
+      if (!r.ok) { if (q) { setSent((l) => l.filter((x) => x !== q)); setText((v) => v || t) } alert(j.error || "Couldn't send") }
+    } catch { if (q) { setSent((l) => l.filter((x) => x !== q)); setText((v) => v || t) } } finally { setBusy(false) }
   }
   // your open comments (and your replies) since the last time they went to the agent: one click sends them all
   const lastYou = (c: (typeof comments)[number]) => Math.max(c.author === 'user' ? c.ts : 0, ...c.replies.filter((r) => r.by !== 'agent').map((r) => r.ts))
@@ -190,6 +194,9 @@ export function AgentPanel() {
     area.current?.focus()
   }
   const anyWorking = live.some((s) => s.state === 'working')
+  const yours = (agent.messages || []).filter((m) => m.role === 'you').slice(-8).map((m) => norm(m.text))
+  const waiting = sent.filter((q) => q.k === key && Date.now() - q.at < 120000 && !yours.some((y) => y === q.n || y.includes(q.n.slice(0, 60))))
+  const shown: { role: string; text: string; pending?: boolean }[] = [...(agent.messages || []), ...waiting.map((q) => ({ role: 'you', text: q.text, pending: true }))]
   if (!open) return (
     <button className="ag-toggle" onClick={() => toggle(true)} title="Show the Claude sessions working on this">
       <Status s={anyWorking ? 'working' : live.some((s) => s.state !== 'ended') ? 'waiting' : 'ended'} />Claude{live.length > 1 ? ` · ${live.length}` : ''}
@@ -228,7 +235,7 @@ export function AgentPanel() {
         )}
       </div>
       <div className="ag-msgs" ref={list}>
-        {agent.messages?.length ? agent.messages.map((m, i) => <div key={i} className={`ag-m ${m.role}`} dangerouslySetInnerHTML={{ __html: renderMd(m.text) }} />)
+        {shown.length ? shown.map((m, i) => <div key={i} className={`ag-m ${m.role}${m.pending ? ' pending' : ''}`} dangerouslySetInnerHTML={{ __html: renderMd(m.text) }} />)
           : <div className="ag-m empty">No messages yet</div>}
       </div>
       {(state === 'ended' || state === 'starting') && (

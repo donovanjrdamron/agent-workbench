@@ -202,7 +202,7 @@ export function lint(source: string): { level: 'fix' | 'note'; msg: string }[] {
   const art = els.find((e) => (e.attrs.class?.value || '').split(/\s+/).includes('ad') || 'data-artboard' in e.attrs)
   const css = (source.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || []).join('\n')
   const inline = els.map((e) => e.attrs.style?.value || '').join('\n')
-  if (!art) out.push({ level: 'note', msg: 'No .ad (or data-artboard) element: the board treats this as a flow page. Text, colours and images are editable, positions are not.' })
+  if (!art) out.push({ level: 'fix', msg: 'No .ad artboard: the user can only nudge pieces here. Build it as <div class="ad" style="width:…px;height:…px"> with every piece placed by left/top inside (emails too: 600px wide, one absolute band per section). See AUTHORING.md.' })
   if (!art && !/<meta[^>]+name=["']studio:width["']/i.test(source)) out.push({ level: 'fix', msg: 'Page without <meta name="studio:width" content="…">: the board shows it 1200px wide and exports it at that width. Emails: content="600" (the width of the email itself).' })
   const scripts = els.filter((e) => e.tag === 'script' && !e.attrs.src?.value?.includes('fonts'))
   if (scripts.length) out.push({ level: 'fix', msg: `<script> at line ${scripts[0].line}: anything it creates cannot be selected or edited on the board. Write the final HTML out instead.` })

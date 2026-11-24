@@ -91,11 +91,12 @@ body{margin:0}
 
 ### Emails and other pages
 
-- No `.ad`. The board treats the file as a flow page: the user can retype text, change colours and swap images, and nothing inside can be dragged.
+- **Design an email exactly like an ad: a fixed artboard with every piece placed by hand.** The user edits it like Figma: drags, drops and scales any piece anywhere. Build it as `<div class="ad" style="width:600px;height:<total>px">`, and inside it one absolutely positioned `<div class="section-…">` per band of the email (`left:0;top:…;width:600px;height:…`) holding that band's pieces, each with its own `left`/`top`. No tables, no flow layout, no `margin` stacking while the user is designing it. "Slice by section" cuts at those bands. Only when the user asks for the email as sendable HTML (not as sliced images) do you rebuild it into email tables, keeping the user's final positions.
+- A page without `.ad` (an old email, a web page) still works: the user can drag anything in it, and the user's moves land as `translate` (see below). It edits far worse than an artboard, so never start a new design that way.
 - **Declare the page's width** in `<head>`: `<meta name="studio:width" content="600">` for an email (the width of the email table itself, normally 600). The board frame and every export use it, so the frame is exactly the email with no grey margin either side. **(checked)**
 - The email table's own width is that same number, and `body` has no margin, so nothing sits outside it.
 - Same text rule: one block of copy per element (`<p>`, `<td>` with only text). Same picture rule: `<img>`.
-- Layout changes in emails are your job. The user will leave a comment.
+- Their edits come first. After the user's pass, tidy what the user moved into clean positions if it needs it, never back to where it was.
 
 ## Working with their edits
 

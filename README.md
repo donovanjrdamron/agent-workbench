@@ -3,13 +3,18 @@
 A local setup for running lots of Claude Code sessions at once without losing track of them, and for designing ads, emails and pages with them on a Figma-style canvas.
 
 - **Work board** (http://127.0.0.1:4477): a kanban with Next · Deep focus · Orchestrating · Done columns. Claude puts a card on it when it starts a task and marks it **Ready for review** when it thinks it's finished. Only you move cards to Done. It also saves the links you'll need into the card's notes.
+- **Start an agent from a card:** open a card and press **Start**. A new Orca tab opens with Claude in the brand's project folder, with the task as its first message. The session links itself to the card. **+ New** adds another session to a card that already has one.
+- **Today's goal:** a line in the Next column. Cards above it are for today, cards below are for later.
+- **Search Done:** a search bar on the Done column. It finds titles, notes, links, steps, Studio boards and what you asked each session, and it tolerates typos.
 - **Live sessions on every card:**
   - Each Claude session on a card shows its chat. A green dot means online, a spinner means working, grey means offline.
   - You can send it messages and `/commands` (with suggestions as you type), attach files, stop it, or rename it with a double-click.
   - Click an offline session to turn it back on.
   - Needs [Orca](https://github.com/stablyai/orca) terminals.
 - **Studio** (http://127.0.0.1:4517): a canvas over plain HTML design files.
-  - Agents write the HTML. You drag, resize, retype and restyle by hand, and your edits are written back into the file. The `studio` CLI tells agents exactly what you changed.
+  - Agents write the HTML. You edit it like Figma: click anything, drag it anywhere (between frames, onto the board, into an email), resize, rotate, retype and restyle. Your edits are written back into the file, and the `studio` CLI tells agents exactly what you changed.
+  - Agents learn how to build editable designs when they save one on a board: a hook runs Studio's check and hands them the rules and anything to fix. Sessions that never touch Studio never see it.
+  - The side panels open and close (corner buttons, ⌘\ for both).
   - Plan on the same canvas: step boxes chained with arrows, sections, pictures and videos with notes, and links. `studio plan` turns the plan into text Claude reads before it starts.
   - Pin comments on any element, then press **Send comments to agent** to hand them all to a session in one go. If the board has several sessions, you pick which one.
   - **Slice** an email into pieces and export them for your email tool, or export any design as PNG/JPG.
@@ -33,7 +38,7 @@ Then open a new terminal, restart your Claude sessions, and type `board`.
 The installer:
 - copies `board/` and `waiting/` to `~/.claude/scripts/`
 - installs Studio's packages and puts `board`, `card`, `studio` and `waiting` on your PATH
-- adds 5 hooks and a status line to `~/.claude/settings.json`. It backs the file up first and leaves an existing status line alone.
+- adds 6 hooks and a status line to `~/.claude/settings.json`. It backs the file up first and leaves an existing status line alone.
 - adds the rules that tell Claude how to use the board and Studio to `~/.claude/CLAUDE.md`, inside `agent-workbench` markers
 - keeps the board running in the background with launchd. The board starts Studio when it's needed. Use `--no-service` to skip this.
 

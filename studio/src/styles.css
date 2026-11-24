@@ -11,6 +11,14 @@ button, input, select { font: inherit; color: inherit; }
 button { cursor: default; }
 
 .app { display: grid; grid-template-columns: 240px 1fr 264px; height: 100%; }
+.app.no-left { grid-template-columns: 1fr 264px; }
+.app.no-right { grid-template-columns: 240px 1fr; }
+.app.no-left.no-right { grid-template-columns: 1fr; }
+.side-btn { position: absolute; top: 12px; z-index: 7; width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--dim); cursor: pointer; }
+.side-btn.left { left: 10px; } .side-btn.right { right: 10px; }
+.side-btn:hover { background: var(--bg2); border-color: var(--line); color: var(--text); }
+.side-btn .fill { opacity: .35; } .side-btn.on .fill { opacity: 1; }
+.app:not(.no-left) .side-btn.left, .app:not(.no-right) .side-btn.right { opacity: .55; } .side-btn:hover { opacity: 1 !important; }
 .stage { position: relative; min-width: 0; overflow: hidden; }
 .loading { display: grid; place-items: center; height: 100%; color: var(--dim); }
 
@@ -256,13 +264,13 @@ div.drag-ghost { background: rgba(13,153,255,0.12); }
 .canvas.rotating, .canvas.rotating * { cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path d='M5 13a7 7 0 1 0 2-5' fill='none' stroke='white' stroke-width='4' stroke-linecap='round'/><path d='M5 13a7 7 0 1 0 2-5' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'/><path d='M3 4v6h6' fill='none' stroke='white' stroke-width='4' stroke-linejoin='round' stroke-linecap='round'/><path d='M3 4v6h6' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round' stroke-linecap='round'/></svg>") 12 12, alias !important; }
 
 /* ---------- Claude session panel (the card's live conversation) ---------- */
-.ag-toggle { position: absolute; right: 12px; top: 12px; z-index: 6; display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+.ag-toggle { position: absolute; right: 48px; top: 12px; z-index: 6; display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
 .ag-toggle:hover { background: var(--bg2); }
 .ag-dot { width: 8px; height: 8px; border-radius: 50%; background: #868e96; flex-shrink: 0; }
 .ag-dot.working { background: #0d99ff; animation: agpulse 1.4s ease-in-out infinite; }
 .ag-dot.waiting { background: #f5b301; }
 @keyframes agpulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
-.ag-panel { position: absolute; right: 12px; top: 12px; bottom: 70px; width: 380px; z-index: 6; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 32px rgba(0,0,0,.5); font-size: 13px; overflow: hidden; user-select: text; }
+.ag-panel { position: absolute; right: 12px; top: 50px; bottom: 70px; width: 380px; z-index: 6; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 32px rgba(0,0,0,.5); font-size: 13px; overflow: hidden; user-select: text; }
 .ag-panel.dropping { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .ag-head { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 6px; border-bottom: 1px solid var(--line); }
 .ag-pick { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 0 1 auto; margin-right: auto; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--text); font-weight: 600; text-align: left; }
@@ -303,6 +311,7 @@ div.drag-ghost { background: rgba(13,153,255,0.12); }
 .ag-clip { display: flex; padding: 4px; margin-left: -4px; border: 0; border-radius: 6px; background: none; color: var(--faint); }
 .ag-clip:hover { background: var(--bg3); color: var(--text); }
 .ag-go { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--text); color: var(--bg); }
+.ag-m.pending { opacity: .6; }
 .ag-cmw { position: relative; margin: 0 8px 0 auto; }
 .ag-cm { display: flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg3); color: var(--text); font: 500 12px/1.2 inherit; cursor: pointer; }
 .ag-cm b { min-width: 16px; padding: 0 4px; border-radius: 999px; background: var(--text); color: var(--bg); font-size: 10.5px; line-height: 16px; text-align: center; }

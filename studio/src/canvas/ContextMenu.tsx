@@ -37,15 +37,14 @@ const aiEntries = (target: Parameters<typeof runTool>[1]): Entry[] => [
 
 function frameMenu(design: string, p: { x: number; y: number }): Entry[] {
   const d = get().designs[design]
-  const flow = isPage(design)
   return [
     { label: 'Copy', keys: '⌘C', run: () => copyFrames([design]) },
     { label: 'Duplicate', keys: '⌘D', run: () => duplicateFrames([design]) },
-    { label: 'Paste into frame', keys: '⌘V', run: () => paste(), disabled: flow },
+    { label: 'Paste into frame', keys: '⌘V', run: () => paste() },
     'sep',
     { label: 'Copy link for AI', run: () => copyRef(frameRef(design)) },
     { label: 'Copy file path', run: () => copyRef(`${get().root}/${design}`) },
-    { label: 'Select everything inside', keys: '⌘A', run: () => select(design, piecesOf(design).map(sidOf)), disabled: flow || d?.loose },
+    { label: 'Select everything inside', keys: '⌘A', run: () => select(design, piecesOf(design).map(sidOf)), disabled: d?.loose },
     { label: 'Comment here', keys: 'C', run: () => addComment(design, p, null) },
     'sep',
     { label: 'Rename', run: () => set({ renaming: design }) },
@@ -74,22 +73,21 @@ function framesMenu(ids: string[]): Entry[] {
 
 function pieceMenu(design: string, els: HTMLElement[], p: { x: number; y: number }): Entry[] {
   const one = els.length === 1 ? els[0] : null
-  const flow = isPage(design)
   return [
     { label: 'Copy', keys: '⌘C', run: () => copy() },
-    { label: 'Cut', keys: '⌘X', run: () => { copy(); deleteSelection() }, disabled: flow },
-    { label: 'Paste', keys: '⌘V', run: () => paste(), disabled: flow },
-    { label: 'Duplicate', keys: '⌘D', run: () => duplicate(), disabled: flow },
+    { label: 'Cut', keys: '⌘X', run: () => { copy(); deleteSelection() } },
+    { label: 'Paste', keys: '⌘V', run: () => paste() },
+    { label: 'Duplicate', keys: '⌘D', run: () => duplicate() },
     { label: 'Delete', keys: '⌫', danger: true, run: () => deleteSelection() },
     'sep',
-    { label: 'Bring to front', keys: ']', run: () => zOrder('front'), disabled: flow },
-    { label: 'Bring forward', keys: '⌘]', run: () => zOrder('forward'), disabled: flow },
-    { label: 'Send backward', keys: '⌘[', run: () => zOrder('backward'), disabled: flow },
-    { label: 'Send to back', keys: '[', run: () => zOrder('back'), disabled: flow },
+    { label: 'Bring to front', keys: ']', run: () => zOrder('front') },
+    { label: 'Bring forward', keys: '⌘]', run: () => zOrder('forward') },
+    { label: 'Send backward', keys: '⌘[', run: () => zOrder('backward') },
+    { label: 'Send to back', keys: '[', run: () => zOrder('back') },
     'sep',
-    { label: 'Flip horizontal', keys: '⇧H', run: () => flipEls(design, els, 'x'), disabled: flow },
-    { label: 'Flip vertical', keys: '⇧V', run: () => flipEls(design, els, 'y'), disabled: flow },
-    { label: 'Rotate 90°', run: () => turnEls(design, els), disabled: flow },
+    { label: 'Flip horizontal', keys: '⇧H', run: () => flipEls(design, els, 'x') },
+    { label: 'Flip vertical', keys: '⇧V', run: () => flipEls(design, els, 'y') },
+    { label: 'Rotate 90°', run: () => turnEls(design, els) },
     { label: 'Hide', run: () => els.forEach((el) => toggleHidden(design, el)) },
     'sep',
     ...(one && isTextLeaf(one) ? [{ label: 'Edit text', keys: 'Enter', run: () => editSelected() } as Entry] : []),

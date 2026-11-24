@@ -93,7 +93,7 @@ export function Overlay() {
     const cx = a.x + a.w / 2, cy = a.y + a.h / 2
     return { left: sx(cx - w / 2), top: sy(cy - h / 2), width: w * z, height: h * z, rotate: `${rot}deg`, w, h }
   })()
-  const turnOk = !editing && !expanding && tool === 'move' && !isPage(sel.design || '')
+  const turnOk = !editing && !expanding && tool === 'move'
   // On a thin or tiny box the handles would cover all of it, and every drag would resize instead of move. Leave the
   // middle free: no side handles along a short side, and one corner only when both sides are short.
   const thinW = !!single && single.w * z < 16, thinH = !!single && single.h * z < 16

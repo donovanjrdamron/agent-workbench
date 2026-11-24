@@ -119,8 +119,6 @@ export function moveProps(m: Mover, dx: number, dy: number): Record<string, stri
   return { translate: x || y ? `${x}px ${y}px` : null }
 }
 
-const FLOW_MSG = 'Emails and pages are flow layouts, so things cannot be dragged around. Edit text, colours and images here and ask the agent to restructure.'
-
 export function nudge(dx: number, dy: number) {
   const { sel } = get()
   if (!sel.design) return
@@ -130,7 +128,6 @@ export function nudge(dx: number, dy: number) {
     saveLayout([{ id: d.id, x: d.x + dx, y: d.y + dy }], [{ id: d.id, x: d.x, y: d.y }])
     return
   }
-  if (isPage(sel.design)) { toast(FLOW_MSG); return }
   for (const el of selected()) style(sel.design, [el], moveProps(mover(el), dx, dy))
 }
 
@@ -406,7 +403,6 @@ export async function paste() {
     }
     return
   }
-  if (isPage(design)) { toast(FLOW_MSG); return }
   const root = frames.get(design)?.root
   if (!root) { toast('Zoom in on this design to load it, then paste'); return }
   if (!root.hasAttribute('data-sid')) { toast('This file has no artboard element to paste into'); return }
@@ -419,7 +415,6 @@ export async function paste() {
 }
 
 export async function insert(design: string, html: string, edit = false) {
-  if (isPage(design)) { toast(FLOW_MSG); set({ tool: 'move' }); return }
   const root = frames.get(design)?.root
   if (!root || !root.hasAttribute('data-sid')) { toast('This file has no artboard element to add to'); return }
   const z = topZ(root)
@@ -430,6 +425,12 @@ export async function insert(design: string, html: string, edit = false) {
 export function local(design: string, pt: { x: number; y: number }) {
   const d = get().designs[design]
   const f = frames.get(design)
+  // An email or page adds pieces to its <body>. Unless the body is positioned, they are placed from the page's top-left
+  // corner (where the scrolled page starts), not from the body's box.
+  if (f && !f.art && f.root) {
+    const w = f.root.ownerDocument.defaultView
+    if (w && w.getComputedStyle(f.root).position === 'static') return { x: Math.round(pt.x - d.x + f.ox + w.scrollX), y: Math.round(pt.y - d.y + f.oy + w.scrollY) }
+  }
   const r = f?.root?.getBoundingClientRect()
   return { x: Math.round(pt.x - d.x + (f?.ox || 0) - (r?.left || 0)), y: Math.round(pt.y - d.y + (f?.oy || 0) - (r?.top || 0)) }
 }
@@ -438,7 +439,7 @@ export async function insertImages(design: string | null, files: File[], pt: { x
   for (const file of files.filter((f) => f.type.startsWith('image/'))) {
     try {
       const src = await upload(design, file, file.name || 'pasted.png')
-      if (!design || get().designs[design]?.loose || isPage(design)) { // onto the bare board
+      if (!design || get().designs[design]?.loose) { // onto the bare board
         const size = await new Promise<{ w: number; h: number }>((res) => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth || 600, h: i.naturalHeight || 600 }); i.onerror = () => res({ w: 600, h: 600 }); i.src = URL.createObjectURL(file) })
         const w = Math.min(800, size.w), h = Math.round((w * size.h) / size.w)
         await addLoose(`<img src="${src}" style="position:absolute;left:0px;top:0px;width:${w}px;height:${h}px">`, { x: pt.x - w / 2, y: pt.y - h / 2, w, h }, (file.name || 'image').replace(/\.\w+$/, ''))
@@ -508,7 +509,7 @@ export async function moveOut(design: string, els: HTMLElement[], to: string | n
   const d = get().designs[design]
   const toRoot = to ? frames.get(to)?.root : null
   if (!d || !els.length) return false
-  if (to && (!toRoot || !toRoot.hasAttribute('data-sid') || isPage(to))) { toast(isPage(to) ? 'Emails and pages are flow layouts: pieces cannot be dropped into them.' : 'Zoom in on that frame to load it, then drop again'); reloadDesign(design); return false }
+  if (to && (!toRoot || !toRoot.hasAttribute('data-sid'))) { toast('Zoom in on that frame to load it, then drop again'); reloadDesign(design); return false }
   let z = toRoot ? topZ(toRoot) : 0
   // Measured where the piece lived, not where the drag left it: pushed against its frame's edge a line of copy wraps
   // into a narrow column, and that is not its size.

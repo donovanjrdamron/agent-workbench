@@ -129,7 +129,17 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .card .meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .tag{display:inline-block;padding:0 6px;border-radius:3px;font-size:12px;line-height:20px;white-space:nowrap}
 .cvi{color:var(--faint);flex-shrink:0}
-.eyebtn{margin-left:auto;color:var(--faint);padding:2px 4px;border-radius:4px;display:flex}
+.dsearch{margin-left:auto;flex:1;min-width:0;max-width:170px;display:flex;align-items:center;gap:5px;height:24px;padding:0 7px;border:1px solid transparent;border-radius:6px;color:var(--faint);transition:background .12s,border-color .12s}
+.dsearch:hover{background:rgba(0,0,0,.04)}
+.dsearch:focus-within{background:var(--bg,#fff);border-color:var(--line)}
+.dsearch input{flex:1;min-width:0;border:0;outline:0;background:none;font:inherit;font-size:12.5px;color:var(--text);padding:0}
+.dsearch input::placeholder{color:var(--faint)}
+.dsearch .x{display:none;border:0;background:none;color:var(--faint);padding:0 2px;cursor:pointer;font-size:13px;line-height:1}
+.dsearch.has .x{display:block}
+.dhits{color:var(--faint);font-size:11.5px;margin:0 2px 6px}
+.card mark{background:rgba(255,212,0,.45);color:inherit;border-radius:2px;padding:0 1px}
+.card .why{font-size:11.5px;color:var(--faint);margin-top:4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.eyebtn{margin-left:4px;color:var(--faint);padding:2px 4px;border-radius:4px;display:flex}
 .eyebtn:hover{background:var(--hover);color:var(--muted)}
 .col.collapsed .cards{min-height:56px;border:1px dashed var(--line);border-radius:6px}
 
@@ -160,6 +170,9 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .cspin{display:inline-flex}.cspin .spin{width:12px;height:12px;color:var(--muted)}
 .worksep{display:flex;align-items:center;gap:8px;color:var(--faint);font-size:11.5px;margin:6px 2px 0}
 .worksep::before,.worksep::after{content:"";flex:1;height:1px;background:var(--line)}
+.todaysep{display:flex;align-items:center;gap:8px;color:var(--text);font-size:11.5px;font-weight:600;margin:6px 2px;user-select:none}
+.todaysep::before,.todaysep::after{content:"";flex:1;height:1.5px;background:var(--accent);opacity:.55;border-radius:1px}
+.todaysep span{color:var(--faint);font-weight:400}
 .ag-send{position:relative}
 .ag-cmds{position:absolute;left:0;right:0;bottom:calc(100% + 6px);z-index:4;max-height:280px;overflow-y:auto;background:var(--bg);border-radius:10px;box-shadow:var(--peek-shadow);padding:4px}
 .ag-cmd{display:flex;gap:10px;align-items:baseline;width:100%;padding:6px 8px;border-radius:6px;text-align:left;font-size:13px}
@@ -171,6 +184,22 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .adot.online{background:rgb(45,170,100)}
 .ag-mi.off{opacity:.5}.ag-mi.off:hover{opacity:.85}
 .ag-off{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 8px 8px;padding:10px 12px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);font-size:13px}
+.ag-start{border:1px solid var(--line);border-radius:12px;margin:14px 0 4px;padding:12px;display:flex;flex-direction:column;gap:9px}
+.ag-start .hd{display:flex;align-items:center;justify-content:space-between;font-weight:600;font-size:13.5px}
+.ag-start .hd span{font-weight:400;color:var(--faint);font-size:12px}
+.ag-start textarea{width:100%;box-sizing:border-box;resize:none;min-height:84px;max-height:320px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:inherit;font-size:13.5px;line-height:1.45;background:var(--bg);color:var(--text);outline:none}
+.ag-start textarea:focus{border-color:var(--muted)}
+.ag-start .srow{display:flex;align-items:center;gap:8px}
+.ag-start select{flex:1;min-width:0;height:32px;border:1px solid var(--line);border-radius:8px;padding:0 32px 0 10px;font:inherit;font-size:12.5px;color:var(--text);cursor:pointer;
+  -webkit-appearance:none;appearance:none;background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 11px center/12px 12px}
+.ag-start select:hover{border-color:var(--muted)}
+.ag-start .go{background:var(--text);color:var(--bg);border-radius:8px;height:32px;padding:0 16px;font-weight:600;font-size:13px;flex-shrink:0}
+.ag-start .go:disabled{opacity:.5}
+.ag-start .cancel{color:var(--muted);font-size:12.5px;padding:6px 8px;border-radius:8px}
+.ag-start .wait{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.ag-new{color:var(--muted);font-size:12px;padding:3px 8px;border-radius:6px;flex-shrink:0}
+.ag-new:hover{background:var(--hover,rgba(0,0,0,.05));color:var(--text)}
+.ag-m.pending{opacity:.6}
 .ag-on{background:var(--text);color:var(--bg);border-radius:8px;padding:5px 12px;font-weight:500;flex-shrink:0}
 .ag-on:disabled{opacity:.5}
 .ag-go.stop svg{display:none}.ag-go.stop::after{content:"";width:9px;height:9px;border-radius:2px;background:currentColor}
@@ -354,6 +383,15 @@ function tagStyle(brand){
 function tag(brand){ return brand ? `<span class="tag" style="${tagStyle(brand)}">${esc(brand)}</span>` : ""; }
 
 /* ---------- persistence ---------- */
+/* Rebuilding the cards while you hold one cancels the drag (even in the instant between pressing and moving):
+   background redraws wait until you let go. */
+let pressed = false, owed = null;
+const holding = () => !!dragId || pressed;
+function later(fn){ if(holding()) owed = fn; else fn(); }
+function settle(){ if(holding()) return; const f = owed; owed = null; if(f) f(); }
+document.addEventListener("pointerdown", e => { if(e.target.closest?.(".card")) pressed = true; }, true);
+for(const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, () => { pressed = false; setTimeout(settle, 0); }, true);
+document.addEventListener("dragend", () => { pressed = false; setTimeout(settle, 0); }, true);
 let saveT;
 let dirty = false;
 let synced = {};          // id -> JSON of each card as last agreed with the server
@@ -384,7 +422,7 @@ async function push(tries = 0){
     }
     if(!r.ok) throw new Error("save failed " + r.status);
     ver = r.headers.get("X-Version") || ver; dirty = false; snap();
-    if(!openId) render();
+    if(!openId) later(render);
   }catch(e){
     // server briefly unreachable (restart, Mac waking up, phone signal): keep retrying for ~1 min before warning
     if(tries < 12){ setTimeout(() => push(tries + 1), 5000); return; }
@@ -442,14 +480,14 @@ async function pollCanvases(){
   try{
     const ids = await (await fetch("/api/canvases")).json();
     const next = new Set(ids);
-    if([...next].join() !== [...hasCanvas].join()){ hasCanvas = next; if(!openId && !dragId) renderLists(); }
+    if([...next].join() !== [...hasCanvas].join()){ hasCanvas = next; if(!openId) later(renderLists); }
   }catch(e){}
 }
 const CANVAS_ICON = `<svg class="cvi" viewBox="0 0 16 16" width="13" height="13" aria-label="Has canvas"><rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="4" y="5.5" width="3.5" height="2.5" rx=".6" fill="currentColor"/><rect x="8.5" y="8.5" width="3.5" height="2.5" rx=".6" fill="currentColor"/></svg>`;
-function cardHTML(c){
+function cardHTML(c, hit){
   const n = c.steps?.length||0, d = (c.steps||[]).filter(s=>s.done).length;
   return `<div class="card ${c.status==="Done"?"done":""}" draggable="true" data-id="${c.id}">
-    <div class="t">${esc(c.title)||''}</div>
+    <div class="t">${hit ? hit.title : esc(c.title)||''}</div>${hit?.why ? `<div class="why">${hit.why}</div>` : ""}
     <div class="meta">${tag(c.brand)}${c.ready && c.status!=="Done"?`<span class="ready" title="The agent thinks this is finished. Move it to Done when you agree.">Ready for review</span>`:""}${agents[c.id]?.state==="working"?`<span class="cspin" title="An agent is working on this">${SPIN}</span>`:""}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
   </div>`;
 }
@@ -465,7 +503,118 @@ function render(){
 let hideDone = (() => { try { return localStorage.getItem("hideDone") === "1"; } catch(e) { return false; } })();
 const EYE_OFF = `<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 8s2.3-4 6-4 6 4 6 4-2.3 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="1.8" fill="currentColor"/></svg>`;
 const EYE_ON = `<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 8s2.3-4 6-4 6 4 6 4-2.3 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 13L13 3" stroke="currentColor" stroke-width="1.3"/></svg>`;
+/* ---------- search the Done column ---------- */
+let doneQ = "", sessIndex = {}, sessAt = 0;
+const SEARCH_ICON = `<svg viewBox="0 0 16 16" width="13" height="13" style="flex:none"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+const fold = t => String(t ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const words = t => fold(t).replace(/https?:\/\/(www\.)?/g, " ").split(/[^a-z0-9$%]+/).filter(Boolean);
+function lev(a, b, max){   // edit distance, giving up past max
+  if(Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({length: b.length + 1}, (_, i) => i);
+  for(let i = 1; i <= a.length; i++){
+    const cur = [i]; let best = i;
+    for(let j = 1; j <= b.length; j++){
+      cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+      if(i > 1 && j > 1 && a[i-1] === b[j-2] && a[i-2] === b[j-1]) cur[j] = Math.min(cur[j], prev[j-2] + 1);   // swapped letters
+      best = Math.min(best, cur[j]);
+    }
+    if(best > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+// how well one query word matches one field's words: exact word > start of a word > inside a word > a typo away
+function tokScore(q, ws, joined){
+  let best = 0;
+  for(const w of ws){
+    if(w === q) return 1;
+    if(w.startsWith(q)) best = Math.max(best, q.length > 1 ? .8 : .5);
+    else if(q.length >= 3 && w.includes(q)) best = Math.max(best, .55);
+    else if(q.length >= 4 && w.length >= 3){   // typos: against the whole word, or the start of a longer one
+      const max = q.length >= 7 ? 2 : 1, d = Math.min(lev(q, w, max), q.length >= 5 && w.length > q.length + 1 ? lev(q, w.slice(0, q.length), max) : max + 1);
+      if(d <= max) best = Math.max(best, d <= 1 ? .4 : .3);
+    }
+  }
+  if(!best && q.length >= 3 && joined.includes(q)) best = .45;   // across words ("checkout" in "check-out")
+  return best;
+}
+function searchDone(list, query){
+  const qs = [...new Set(words(query))]; if(!qs.length) return null;
+  const phrase = fold(query).trim();
+  const out = [];
+  for(const c of list){
+    const notes = String(c.notes || "");
+    const fields = [
+      ["title", c.title, 5], ["brand", c.brand, 3], ["studio", [c.studio, c.studio_folder].filter(Boolean).join(" "), 2.5],
+      ["steps", (c.steps || []).map(s => s.text || s.title || "").join(" · "), 2], ["notes", notes, 1.5],
+      ["sessions", (sessIndex[c.id] || []).join(" · "), 1.2],
+    ].map(([k, t, wt]) => { const f = fold(t || ""); return {k, t: t || "", wt, ws: words(t), joined: f.replace(/[^a-z0-9$%]+/g, "")}; });
+    let total = 0, why = null, ok = true;
+    for(const q of qs){
+      let best = 0, where = null;
+      for(const f of fields){ const sc = tokScore(q, f.ws, f.joined) * f.wt; if(sc > best){ best = sc; where = f; } }
+      if(!best){ ok = false; break; }
+      total += best;
+      if(where.k !== "title" && (!why || where.wt > why.wt)) why = where;
+    }
+    if(!ok) continue;
+    if(phrase.length > 2 && fold(c.title).includes(phrase)) total += 4;           // the whole query in the title
+    else if(phrase.includes(" ") && fields.some(f => fold(f.t).includes(phrase))) total += 2;
+    out.push({c, score: total, why});
+  }
+  const t = c => Math.max(Number(c.ready) || 0, Number(c.created) || 0);
+  out.sort((a, b) => b.score - a.score || t(b.c) - t(a.c));
+  return out.map(({c, why}) => ({c, title: mark(c.title, qs), why: why ? snippet(why.t, qs) : ""}));
+}
+function mark(text, qs){
+  // highlight the parts of the text the query words match (case and accents ignored)
+  const f = fold(text), hits = [];
+  for(const q of qs){ let i = f.indexOf(q); while(i >= 0){ hits.push([i, i + q.length]); i = f.indexOf(q, i + q.length); } }
+  if(!hits.length || f.length !== String(text).length) return esc(text);
+  hits.sort((a, b) => a[0] - b[0]);
+  let out = "", at = 0;
+  for(const [a, b] of hits){ if(b <= at) continue; const s = Math.max(a, at); out += esc(text.slice(at, s)) + "<mark>" + esc(text.slice(s, b)) + "</mark>"; at = b; }
+  return out + esc(text.slice(at));
+}
+function snippet(text, qs){
+  const t = String(text).replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\*\*|__|`|^#+ |(^|\s)[-*] /gm, " ").replace(/\s+/g, " ").trim(), f = fold(t);
+  const i = Math.min(...qs.map(q => f.indexOf(q)).filter(i => i >= 0), Infinity);
+  const from = i === Infinity ? 0 : Math.max(0, i - 40);
+  return (from ? "…" : "") + mark(t.slice(from, from + 160), qs) + (from + 160 < t.length ? "…" : "");
+}
+function doneCards(list){
+  const q = doneQ.trim();
+  if(!q) return hideDone ? "" : list.map(c => cardHTML(c)).join("");
+  const hits = searchDone(list, q);
+  return `<div class="dhits">${hits.length ? `${hits.length} result${hits.length > 1 ? "s" : ""}` : "Nothing matches"}</div>` + hits.map(h => cardHTML(h.c, h)).join("");
+}
+function loadSessIndex(){
+  if(Date.now() - sessAt < 30000) return;
+  sessAt = Date.now();
+  fetch("/api/search-index").then(r => r.json()).then(j => { sessIndex = j || {}; if(doneQ.trim()) fillDone(); }).catch(() => {});
+}
+function fillDone(){
+  const col = document.querySelector('.col[data-s="Done"]'); if(!col) return;
+  const all = visible().filter(c => c.status === "Done").sort(byOrder);
+  col.classList.toggle("collapsed", hideDone && !doneQ.trim());
+  col.querySelector(".dsearch").classList.toggle("has", !!doneQ);
+  col.querySelector(".cards").innerHTML = doneCards(all);
+  bindCards();
+}
+function bindDoneSearch(){
+  const inp = $("#dq"); if(!inp) return;
+  inp.onfocus = loadSessIndex;
+  inp.oninput = () => { doneQ = inp.value; fillDone(); };
+  inp.onkeydown = e => {
+    if(e.key === "Escape"){ doneQ = ""; inp.value = ""; fillDone(); inp.blur(); }
+    if(e.key === "Enter"){ const first = document.querySelector('.col[data-s="Done"] .card'); if(first) openPeek(first.dataset.id); }
+    e.stopPropagation();
+  };
+  document.querySelector(".dsearch .x").onclick = e => { e.preventDefault(); doneQ = ""; inp.value = ""; fillDone(); inp.focus(); };
+}
+
 function renderBoard(){
+  const had = document.activeElement?.id === "dq" ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   const cards = visible();
   $("#view").innerHTML = `<div class="board">${STATUSES.map(s=>{
     const all = cards.filter(c=>c.status===s).sort(byOrder);
@@ -473,12 +622,23 @@ function renderBoard(){
     const list = [...all.filter(c=>!busy(c)), ...all.filter(busy)];   // cards an agent is working on sink to the bottom
     const nBusy = all.filter(busy).length;
     const hidden = s === "Done" && hideDone;
+    if(s === "Next"){   // above the line: today's goal; below: later
+      const today = all.filter(c=>c.today), later = all.filter(c=>!c.today);
+      return `<div class="col" data-s="${s}">
+      <div class="colhead"><span class="pill ${PILL[s]}">${s}</span></div>
+      <div class="cards">${today.map(c => cardHTML(c)).join("")}<div class="todaysep" title="Drag cards above this line for today, below it for later">↑ Today's goal</div>${later.map(c => cardHTML(c)).join("")}</div></div>`;
+    }
+    if(s === "Done") return `<div class="col ${hidden && !doneQ.trim() ? "collapsed" : ""}" data-s="${s}">
+      <div class="colhead"><span class="pill ${PILL[s]}">${s}</span><label class="dsearch${doneQ ? " has" : ""}" title="Search done tasks: titles, notes, links, steps, Studio boards and what you asked their sessions">${SEARCH_ICON}<input id="dq" placeholder="Search" value="${esc(doneQ)}" autocomplete="off" spellcheck="false"><button class="x" title="Clear">×</button></label><button class="eyebtn" title="${hidden?"Show":"Hide"} done tasks">${hidden?EYE_ON:EYE_OFF}</button></div>
+      <div class="cards">${doneCards(list)}</div></div>`;
     return `<div class="col ${s==="Deep focus" && list.length>1 ? "overload" : ""} ${hidden ? "collapsed" : ""}" data-s="${s}">
-      <div class="colhead"><span class="pill ${PILL[s]}">${s}</span>${s==="Done" ? `<button class="eyebtn" title="${hidden?"Show":"Hide"} done tasks">${hidden?EYE_ON:EYE_OFF}</button>` : ""}</div>
+      <div class="colhead"><span class="pill ${PILL[s]}">${s}</span></div>
       <div class="cards">${hidden ? "" : list.map((c, i) => (nBusy && nBusy < list.length + 1 && i === list.length - nBusy ? `<div class="worksep">Working</div>` : "") + cardHTML(c)).join("")}</div></div>`;
   }).join("")}</div>`;
   const eb = document.querySelector(".eyebtn");
   if (eb) eb.onclick = () => { hideDone = !hideDone; try { localStorage.setItem("hideDone", hideDone ? "1" : "0"); } catch(e) {} renderLists(); };
+  bindDoneSearch();
+  if(had){ const i = $("#dq"); i.focus(); i.setSelectionRange(...had); }   // a background refresh must not steal the search box
   bindCards();
   document.querySelectorAll(".addcard").forEach(b => b.onclick = () => newCard(b.dataset.s));
   document.querySelectorAll(".col").forEach(bindCol);
@@ -577,33 +737,55 @@ function bindCards(){
     el.onclick = () => { if(!eatClick) openPeek(el.dataset.id); };
     bindTouch(el);
     el.ondragstart = e => { dragId = el.dataset.id; el.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; };
-    el.ondragend = () => { dragId = null; el.classList.remove("dragging"); clearDrop(); };
+    el.ondragend = () => {
+      // Chrome sometimes loses the drop when the line moves under the pointer: land where the line showed
+      if(dragId && pending && document.body.contains(pending.col)) dropInto(pending.col, pending.y);
+      pending = null; dragId = null; el.classList.remove("dragging"); clearDrop();
+    };
   });
 }
+let pending = null;   // where the card would land right now: {col, y}
+document.addEventListener("dragover", e => { if(dragId && !e.target.closest?.(".col")){ pending = null; clearDrop(); } });
 function clearDrop(){ document.querySelectorAll(".drop-line").forEach(d=>d.remove()); document.querySelectorAll(".col.over").forEach(c=>c.classList.remove("over")); }
 function afterEl(container, y){
+  const sep = container.querySelector(".todaysep");
+  if(sep){   // Next: stay on the side of the "Today's goal" line the pointer is on
+    const r = sep.getBoundingClientRect(), today = y < r.top + r.height/2;
+    const els = [...container.querySelectorAll(".card:not(.dragging)")].filter(el => (el.compareDocumentPosition(sep) & Node.DOCUMENT_POSITION_FOLLOWING ? today : !today));
+    return els.find(el => { const r = el.getBoundingClientRect(); return y < r.top + r.height/2; }) || (today ? sep : null);
+  }
   const els = [...container.querySelectorAll(".card:not(.dragging)")];
   return els.find(el => { const r = el.getBoundingClientRect(); return y < r.top + r.height/2; }) || null;
 }
+function aboveToday(list, y){ const sep = list.querySelector(".todaysep"); if(!sep) return false; const r = sep.getBoundingClientRect(); return y < r.top + r.height/2; }
 function bindCol(col){
   const list = col.querySelector(".cards");
   col.ondragover = e => {
     if(!dragId) return; e.preventDefault(); showDrop(col, e.clientY);
   };
-  col.ondragleave = e => { if(!col.contains(e.relatedTarget)) clearDrop(); };
+  col.ondragleave = e => { if(e.relatedTarget && !col.contains(e.relatedTarget)) clearDrop(); };   // (null while crossing children)
   col.ondrop = e => { e.preventDefault(); if(dragId) dropInto(col, e.clientY); };
 }
 function showDrop(col, y){
+  pending = {col, y};
+  const list = col.querySelector(".cards"), cur = list.querySelector(".drop-line"), a = afterEl(list, y);
+  if(cur && (cur.nextElementSibling ?? null) === a) return;   // already there: redrawing it under the pointer can eat the drop
   clearDrop(); col.classList.add("over");
-  const list = col.querySelector(".cards"), line = document.createElement("div"); line.className="drop-line";
-  const a = afterEl(list, y); a ? list.insertBefore(line,a) : list.appendChild(line);
+  const line = document.createElement("div"); line.className = "drop-line";
+  a ? list.insertBefore(line, a) : list.appendChild(line);
 }
 function dropInto(col, y){
+  pending = null;   // (measured with the line still in place, exactly as it was shown)
   const list = col.querySelector(".cards"), card = board.cards.find(c=>c.id===dragId);
-  const a = afterEl(list, y);
+  if(!card) return;
+  const line = list.querySelector(".drop-line");
+  const a = line ? line.nextElementSibling : afterEl(list, y);   // the card lands exactly where the line shows
   card.status = col.dataset.s;
+  const sep = list.querySelector(".todaysep");
+  card.today = card.status === "Next" && !!sep && !!a && (a === sep || !!(a.compareDocumentPosition(sep) & Node.DOCUMENT_POSITION_FOLLOWING));
   const ids = [...list.querySelectorAll(".card:not(.dragging)")].map(x=>x.dataset.id);
-  const at = a ? ids.indexOf(a.dataset.id) : ids.length;
+  const later = ids.filter(id => !board.cards.find(c=>c.id===id).today);
+  const at = a && a.dataset.id ? ids.indexOf(a.dataset.id) : (a ? ids.length - later.length : ids.length);
   ids.splice(at, 0, card.id);
   ids.forEach((id,i)=>{ board.cards.find(c=>c.id===id).order = i; });
   dragId = null; clearDrop(); save(); render();
@@ -631,10 +813,11 @@ function bindTouch(el){
     clearTimeout(touch.timer);
     if(touch.on){
       eatClick = true; setTimeout(()=>eatClick=false, 350);
-      touch.ghost.remove(); touch.el.classList.remove("dragging");
+      touch.ghost.remove();
       const bd = document.querySelector(".board"); if(bd) bd.style.scrollSnapType = "";
       const col = document.elementFromPoint(touch.x, touch.y)?.closest(".col");
-      col ? dropInto(col, touch.y) : (dragId = null, clearDrop());
+      col ? dropInto(col, touch.y) : (dragId = null, clearDrop());   // while the card still counts as the one being dragged
+      touch.el.classList.remove("dragging");
     }
     touch = null;
   };
@@ -730,7 +913,7 @@ function refreshPeekProps(c){
     <select>${STATUSES.map(s=>`<option ${s===c.status?"selected":""}>${s}</option>`).join("")}</select>`;
   $("#vbrand").innerHTML = (c.brand?tag(c.brand):`<span style="color:var(--faint)">—</span>`) +
     `<select><option value="">—</option>${board.brands.map(b=>`<option ${b===c.brand?"selected":""}>${esc(b)}</option>`).join("")}<option value="__new">+ New brand…</option></select>`;
-  $("#vstatus select").onchange = e => { c.status = e.target.value; c.order = -1; save(); refreshPeekProps(c); renderLists(); };
+  $("#vstatus select").onchange = e => { c.status = e.target.value; c.order = -1; if(c.status !== "Next") c.today = false; save(); refreshPeekProps(c); renderLists(); };
   $("#vbrand select").onchange = e => {
     let v = e.target.value;
     if(v==="__new"){ v = (prompt("Brand name")||"").trim(); if(v && !board.brands.includes(v)) board.brands.push(v); }
@@ -863,7 +1046,7 @@ let agents = {};
 async function pollAgents(){
   try{
     const a = await (await fetch("/api/agents")).json();
-    if(JSON.stringify(a) !== JSON.stringify(agents)){ agents = a; if(!openId && !dragId) renderLists(); }
+    if(JSON.stringify(a) !== JSON.stringify(agents)){ agents = a; if(!openId) later(renderLists); }
   }catch(e){}
 }
 let agentTimer = null, agentSig = "";
@@ -942,6 +1125,17 @@ async function mountAgent(c){
   const box = document.getElementById("agentbox");
   let pick = null; try{ pick = localStorage.getItem(pickKey(c.id)); }catch(e){}
   let d = null, starting = 0;
+  let sent = [];   // messages you just sent, shown at once until the session's own record has them
+  const norm = t => String(t).replace(/\s+/g, " ").trim();
+  const drawMsgs = (force) => {
+    const list = box.querySelector(".ag-msgs"); if(!list || !d) return;
+    const yours = d.messages.filter(m => m.role === "you").slice(-8).map(m => norm(m.text));
+    sent = sent.filter(q => Date.now() - q.at < 120000 && !yours.some(y => y === q.n || y.includes(q.n.slice(0, 60))));
+    const all = [...d.messages, ...sent.map(q => ({role: "you", text: q.text, pending: true}))];
+    const atBottom = force || list.scrollHeight - list.scrollTop - list.clientHeight < 40 || !list.childElementCount;
+    list.innerHTML = all.map(m => `<div class="ag-m md ${m.role}${m.pending ? " pending" : ""}">${renderMd(m.text)}</div>`).join("") || `<div class="ag-m empty">No messages yet</div>`;
+    if(atBottom) list.scrollTop = list.scrollHeight;
+  };
   const paintGo = () => {
     const ta = box.querySelector(".ag-send textarea"), go = box.querySelector(".ag-go"); if(!ta || !go) return;
     const stop = !ta.value.trim() && d && d.state === "working";
@@ -955,20 +1149,59 @@ async function mountAgent(c){
     load();
   };
   let paint = () => {};
+  // Start agent: a new Orca tab running Claude in the project folder, with this task as its first message
+  let starter = false, launched = 0;
+  const showStarter = async (extra) => {
+    if(launched && Date.now() - launched < 90000){   // waiting for the new session to check in
+      if(!box.querySelector(".ag-start .wait")) box.innerHTML = `<div class="ag-start"><div class="wait">${SPIN} Starting Claude in Orca… it shows here as soon as it begins.</div></div>`;
+      return;
+    }
+    launched = 0;
+    if(box.querySelector(".ag-start")) return;
+    starter = !!extra;
+    const info = await fetch(`/api/agent/${encodeURIComponent(c.id)}/start-info`).then(r => r.json()).catch(() => null);
+    if(!info || !box.isConnected) { starter = false; return; }
+    const el = document.createElement("div"); el.className = "ag-start";
+    el.innerHTML = `<div class="hd">${extra ? "Start another agent" : "Start an agent on this"}<span>⌘↵ to start</span></div>
+      <textarea spellcheck="true"></textarea>
+      <div class="srow"><select title="The folder the session works in">${info.folders.map(f => `<option value="${esc(f.path)}" ${f.path === info.folder ? "selected" : ""}>${esc(f.label)}</option>`).join("")}</select>
+        ${extra ? `<button class="cancel" type="button">Cancel</button>` : ""}<button class="go" type="button">Start</button></div>`;
+    const ta = el.querySelector("textarea"), go = el.querySelector(".go"), sel = el.querySelector("select");
+    ta.value = info.prompt;
+    if(extra) box.prepend(el); else box.replaceChildren(el);
+    const close = () => { el.remove(); starter = false; agentSig = ""; load(); };
+    if(extra) el.querySelector(".cancel").onclick = close;
+    const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, 320) + "px"; };
+    ta.oninput = () => { go.disabled = !ta.value.trim(); grow(); };
+    requestAnimationFrame(grow);
+    ta.onkeydown = e => { e.stopPropagation(); if(e.key === "Enter" && (e.metaKey || e.ctrlKey)){ e.preventDefault(); go.click(); } if(e.key === "Escape" && extra){ e.preventDefault(); close(); } };
+    go.onclick = async () => {
+      go.disabled = true; go.textContent = "Starting…";
+      const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/start`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt: ta.value, folder: sel.value})}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
+      if(r.error){ alert(r.error); go.disabled = false; go.textContent = "Start"; return; }
+      pick = null; try{ localStorage.removeItem(pickKey(c.id)); }catch(e){}
+      launched = Date.now(); starter = false; el.remove(); box.innerHTML = ""; agentSig = "";
+      showStarter(); load();
+    };
+    if(!extra) return;
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  };
   const load = async () => {
     if(!box.isConnected || openId !== c.id){ stopAgent(); return; }
     let r; try{ r = await (await fetch("/api/agent/" + encodeURIComponent(c.id) + (pick ? "?pid=" + encodeURIComponent(pick) : ""))).json(); }catch(e){ return; }
-    if(!r.linked){ box.innerHTML = ""; d = null; return; }
+    if(starter) return;   // the starter is open: leave it be
+    if(!r.linked){ d = null; agentSig = ""; showStarter(); return; }
+    if(launched){ launched = 0; agentSig = ""; box.innerHTML = ""; }
     if(starting && r.state === "ended" && Date.now() - starting < 60000) r.state = "starting";   // Orca is opening it
     else starting = 0;
-    const sig = JSON.stringify([r.pid, r.state, r.title, r.messages, r.canSend, r.sessions]);
+    const sig = JSON.stringify([r.pid, r.state, r.title, r.messages, r.canSend, r.sessions, sent.length]);
     if(sig === agentSig) return;
     agentSig = sig; d = r;
     const fresh = !box.querySelector(".ag");
     if(fresh){
       box.innerHTML = `<div class="ag">
         <div class="ag-head"><button class="ag-pick" type="button"><span class="ag-cur"></span><span class="ag-title"></span>${CHEV}</button>
-          <button class="ag-open" type="button" title="Jump to this terminal in Orca">Open ↗</button></div>
+          <button class="ag-new" type="button" title="Start another Claude session on this task">+ New</button><button class="ag-open" type="button" title="Jump to this terminal in Orca">Open ↗</button></div>
         <div class="ag-msgs"></div>
         <div class="ag-off"><span>This session is offline.</span><button class="ag-on" type="button">Turn on</button></div>
         <form class="ag-send"><textarea rows="1" placeholder="Write a message…  (/commands work too)"></textarea>
@@ -1021,13 +1254,17 @@ async function mountAgent(c){
           setTimeout(load, 600); return;
         }
         const text = ta.value.trim(); if(!text || !d) return;
-        go.disabled = true;
+        // show it straight away; the session's record catches up a moment later
+        const q = {text, n: norm(text), at: Date.now()};
+        sent.push(q); ta.value = ""; ta.oninput(); drawMsgs(true);
         try{
           const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/send?pid=${encodeURIComponent(d.pid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({text})});
           const j = await r.json().catch(()=>({}));
-          if(!r.ok) alert(j.error || "Couldn't send"); else { ta.value = ""; setTimeout(load, 800); }
-        } finally { ta.oninput(); }
+          if(!r.ok){ sent = sent.filter(x => x !== q); drawMsgs(); if(!ta.value) { ta.value = text; ta.oninput(); } alert(j.error || "Couldn't send"); }
+          else { setTimeout(load, 500); setTimeout(load, 1500); }
+        } catch(e) { sent = sent.filter(x => x !== q); drawMsgs(); if(!ta.value) { ta.value = text; ta.oninput(); } }
       };
+      box.querySelector(".ag-new").onclick = () => showStarter(true);
       box.querySelector(".ag-open").onclick = async () => {
         const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/open?pid=${encodeURIComponent(d.pid)}`, {method:"POST"});
         if(!r.ok){ const j = await r.json().catch(()=>({})); alert(j.error || "Couldn't open it in Orca"); }
@@ -1086,10 +1323,7 @@ async function mountAgent(c){
     paintGo();
     };
     paint();
-    const list = box.querySelector(".ag-msgs");
-    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40 || !list.childElementCount;
-    list.innerHTML = d.messages.map(m => `<div class="ag-m md ${m.role}">${renderMd(m.text)}</div>`).join("") || `<div class="ag-m empty">No messages yet</div>`;
-    if(fresh || atBottom) list.scrollTop = list.scrollHeight;
+    drawMsgs(fresh);
   };
   await load();
   agentTimer = setInterval(load, 3000);
@@ -1107,10 +1341,10 @@ document.addEventListener("keydown", e => {
   if(openId) closePeek();
 });
 async function pollBoard(){
-  if(openId || dragId || dirty) return;
+  if(openId || holding() || dirty) return;
   try{
     const r = await fetch("/api/board"); const v = r.headers.get("X-Version");
-    if(v && v !== ver && !openId && !dragId && !dirty){ board = await r.json(); ver = v; normalize(); snap(); render(); }
+    if(v && v !== ver && !openId && !holding() && !dirty){ board = await r.json(); ver = v; normalize(); snap(); render(); }
     const b = r.headers.get("X-Build");
     if(build && b && b !== build && !openId && !dirty) location.reload();   // page was updated -> load the new code
     build = build || b;

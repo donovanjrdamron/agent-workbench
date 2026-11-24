@@ -49,7 +49,7 @@ export function installKeys() {
     if (mod && k === 'x') { if (s.sel.sids.length) { copy(); deleteSelection() } return done() } // never the whole design
     if (mod && k === 'd') { if (selectedFrames().length) duplicateFrames(); else duplicate(); return done() }
     if (mod && k === 'a') { // everything in the selected ad, else every planning object on the board
-      if (s.sel.design && !isPage(s.sel.design) && !s.designs[s.sel.design]?.loose) select(s.sel.design, piecesOf(s.sel.design).map(sidOf))
+      if (s.sel.design && !s.designs[s.sel.design]?.loose) select(s.sel.design, piecesOf(s.sel.design).map(sidOf))
       else { selectAllItems(); selectFrames(get().order.filter((id) => !get().designs[id]?.loose), get().isel) }
       return done()
     }
@@ -60,7 +60,7 @@ export function installKeys() {
     if (mod && k === '[') { zOrder('backward'); return done() }
     if (mod) return
     if (e.shiftKey && e.code === 'Digit1') { fitAll(); return done() }
-    if (e.shiftKey && (k === 'h' || k === 'v') && s.sel.design && !isPage(s.sel.design)) { // flip, as in Figma
+    if (e.shiftKey && (k === 'h' || k === 'v') && s.sel.design) { // flip, as in Figma
       const els = (s.sel.sids.length ? s.sel.sids.map((x) => elOf(s.sel.design!, x)) : s.designs[s.sel.design]?.loose ? piecesOf(s.sel.design) : []).filter(Boolean) as HTMLElement[]
       for (const el of els) {
         const sc = getComputedStyle(el).scale, [a, b] = sc && sc !== 'none' ? sc.split(' ').map(Number) : [1, 1]

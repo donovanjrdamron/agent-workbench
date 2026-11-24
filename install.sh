@@ -11,10 +11,10 @@ command -v node >/dev/null || { echo "Needs Node 20+ for Studio:  brew install n
 S="$HOME/.claude/scripts"; mkdir -p "$S/board" "$S/waiting"
 
 # 1. code (your cards, boards, canvases and media are never touched)
-rsync -a --exclude 'board.json*' --exclude 'kept.json' --exclude 'permanents.json' --exclude history --exclude canvases \
+rsync -a --exclude 'board.json*' --exclude 'kept.json' --exclude 'permanents.json' --exclude 'projects.json' --exclude history --exclude canvases \
   --exclude media --exclude src --exclude '*.bak' --exclude '*.log' --exclude __pycache__ board/ "$S/board/"
 rsync -a --exclude '*.bak' waiting/ "$S/waiting/"
-chmod +x "$S/board/card" "$S/board/board" "$S/waiting/"*
+chmod +x "$S/board/card" "$S/board/board" "$S/board/studio_hook.py" "$S/waiting/"*
 [ -f "$S/board/board.json" ] || echo '{"brands":[],"cards":[]}' > "$S/board/board.json"
 echo "✓ scripts in $S"
 
@@ -28,10 +28,11 @@ echo "✓ Studio ready (studio help)"
 SET="$HOME/.claude/settings.json"; [ -f "$SET" ] || echo '{}' > "$SET"
 cp "$SET" "$SET.pre-workbench.bak"
 W="$S/waiting"
-jq --arg mark "$W/mark.sh" --arg clear "$W/clear.sh" --arg start "$W/start.sh" --arg sl "$W/statusline.sh" '
+jq --arg mark "$W/mark.sh" --arg clear "$W/clear.sh" --arg start "$W/start.sh" --arg sl "$W/statusline.sh" --arg sh "$S/board/studio_hook.py" '
   def add(ev; cmd; t; m): .hooks[ev] = ((.hooks[ev] // []) | if any(.[]?; .hooks[]?.command == cmd) then . else . + [{hooks:[{type:"command",command:cmd,timeout:t}]} + (if m then {matcher:m} else {} end)] end);
   add("Stop"; $mark; 10; null) | add("StopFailure"; $mark; 10; null) | add("UserPromptSubmit"; $clear; 5; null)
   | add("SessionEnd"; $clear; 5; null) | add("SessionStart"; $start; 10; "startup|resume")
+  | add("PostToolUse"; $sh; 15; "Write|Edit|MultiEdit")
   | if .statusLine == null then .statusLine = {type:"command",command:$sl,padding:0} else . end
 ' "$SET.pre-workbench.bak" > "$SET"
 if [ "$(jq -r '.statusLine.command' "$SET")" != "$W/statusline.sh" ]; then

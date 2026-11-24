@@ -176,7 +176,7 @@ export function duplicateItems() {
 export async function dropIntoDesign(itemId: string, design: string, at: { x: number; y: number }) {
   const s = get()
   const it = s.items[itemId], d = s.designs[design]
-  if (!it || it.kind !== 'image' || !it.src || !d || d.loose || isPage(design)) return false
+  if (!it || it.kind !== 'image' || !it.src || !d || d.loose) return false
   const depth = design.split('/').length - 1
   const src = '../'.repeat(depth) + it.src
   const p = local(design, at)

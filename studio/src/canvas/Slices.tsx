@@ -46,9 +46,9 @@ function bySection(design: string): Slice[] {
   for (let i = 0; i < 12; i++) { const k = kids(root); if (k.length === 1) root = k[0]; else break }
   const rr = root.getBoundingClientRect()
   const tops: number[] = []
-  for (const k of kids(root)) {
-    const r = k.getBoundingClientRect()
-    const top = Math.round(r.top - f.oy), last = tops[tops.length - 1]
+  // (sections placed with left/top can sit in the file in any order: cut by where they are)
+  for (const top of kids(root).map((k) => Math.round(k.getBoundingClientRect().top - f.oy)).sort((a, b) => a - b)) {
+    const last = tops[tops.length - 1]
     if (last === undefined || top - last >= 24) tops.push(top) // thin spacer rows join the section above
   }
   const bottom = Math.round(rr.bottom - f.oy), x = Math.round(rr.left - f.ox), w = Math.round(rr.width)
