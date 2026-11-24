@@ -18,6 +18,10 @@ const sentKey = (board: string) => `studioCommentsSent:${board}`
 const getSent = (board: string) => { try { return Number(localStorage.getItem(sentKey(board))) || 0 } catch { return 0 } }
 const one = (t: string) => t.replace(/\s+/g, ' ').trim()
 const norm = one
+// where you dragged the panel and how big you made it (null: docked on the right), kept in this browser
+type Geom = { x: number; y: number; w: number; h: number }
+const loadGeom = (): Geom | null => { try { const g = JSON.parse(localStorage.getItem('studioChatGeom') || 'null'); return g && g.w ? g : null } catch { return null } }
+const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 const pref = () => { try { return localStorage.getItem('studioChat') !== '0' } catch { return true } }
 const stText = (s?: State) => (s === 'working' ? 'Working…' : s === 'starting' ? 'Turning on…' : s === 'waiting' ? 'Online · waiting on you' : 'Offline')
 const name = (s: { title?: string; card?: string }) => s.title || s.card || 'Untitled session'
@@ -57,6 +61,53 @@ export function AgentPanel() {
   const menuRef = useRef<HTMLDivElement>(null)
   const [dropping, setDropping] = useState(false)
   const [starting, setStarting] = useState('') // "<card>:<pid>" being turned back on, until it answers
+  const [geom, setGeom] = useState<Geom | null>(loadGeom)
+  const panel = useRef<HTMLElement>(null)
+  // drag the header to move it, any edge or corner to resize it; double-click an empty spot of the header to dock it again
+  const grab = (e: React.PointerEvent, edge: string | null) => {
+    if (e.button !== 0) return
+    const el = panel.current, stage = el?.parentElement
+    if (!el || !stage) return
+    // the header moves the panel (the session name too, once the pointer really moves); its other buttons stay buttons
+    if (!edge && (e.target as HTMLElement).closest('.ag-btn, input, .ag-menu')) return
+    if (edge) e.preventDefault()
+    e.stopPropagation()
+    const sr = stage.getBoundingClientRect(), r = el.getBoundingClientRect()
+    const g0 = { x: r.left - sr.left, y: r.top - sr.top, w: r.width, h: r.height }, x0 = e.clientX, y0 = e.clientY
+    const t = e.currentTarget as HTMLElement
+    if (edge) t.setPointerCapture(e.pointerId)   // (the header captures only once it really moves, so a click stays a click)
+    let last = g0, moving = !!edge
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - x0, dy = ev.clientY - y0
+      if (!moving) { if (Math.hypot(dx, dy) < 4) return; moving = true; setMenu(false); try { t.setPointerCapture(ev.pointerId) } catch { /* already gone */ } }
+      let { x, y, w, h } = g0
+      if (!edge) { x += dx; y += dy } else {
+        if (edge.includes('e')) w += dx
+        if (edge.includes('s')) h += dy
+        if (edge.includes('w')) { w -= dx; x += dx }
+        if (edge.includes('n')) { h -= dy; y += dy }
+        if (w < 300) { if (edge.includes('w')) x -= 300 - w; w = 300 }
+        if (h < 260) { if (edge.includes('n')) y -= 260 - h; h = 260 }
+      }
+      w = Math.min(w, sr.width); h = Math.min(h, sr.height)
+      x = Math.max(0, Math.min(x, sr.width - w)); y = Math.max(0, Math.min(y, sr.height - h))
+      last = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) }
+      setGeom(last)
+    }
+    const up = () => {
+      t.removeEventListener('pointermove', move); t.removeEventListener('pointerup', up); t.removeEventListener('pointercancel', up)
+      if (!moving) return
+      // a drag that started on the session name must not also open its list
+      const eat = (ev: MouseEvent) => { ev.stopPropagation(); ev.preventDefault() }
+      window.addEventListener('click', eat, { capture: true, once: true })
+      setTimeout(() => window.removeEventListener('click', eat, { capture: true }), 60)
+      try { localStorage.setItem('studioChatGeom', JSON.stringify(last)) } catch { /* private window */ }
+    }
+    t.addEventListener('pointermove', move); t.addEventListener('pointerup', up); t.addEventListener('pointercancel', up)
+  }
+  const dock = () => {
+    setGeom(null); try { localStorage.removeItem('studioChatGeom') } catch { /* private window */ }
+  }
 
   useEffect(() => {
     let off = false
@@ -203,11 +254,12 @@ export function AgentPanel() {
     </button>
   )
   return (
-    <aside className={`ag-panel${dropping ? ' dropping' : ''}`} onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
+    <aside ref={panel} className={`ag-panel${dropping ? ' dropping' : ''}${geom ? ' free' : ''}`} style={geom ? { left: geom.x, top: geom.y, width: geom.w, height: geom.h } : undefined} onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
       onDragOver={(e) => { if (agent.canSend && e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setDropping(true) } }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false) }}
       onDrop={(e) => { setDropping(false); if (!agent.canSend || !e.dataTransfer.files.length) return; e.preventDefault(); e.stopPropagation(); attach([...e.dataTransfer.files]) }}>
-      <div className="ag-head" ref={menuRef}>
+      {EDGES.map((d) => <div key={d} className={`ag-edge ag-${d}`} onPointerDown={(e) => grab(e, d)} />)}
+      <div className="ag-head" ref={menuRef} onPointerDown={(e) => grab(e, null)} title="Drag to move or resize from any edge">
         {renaming !== null ? (
           <input className="ag-rename" autoFocus value={renaming} placeholder="Name this session" onChange={(e) => setRenaming(e.target.value)}
             onFocus={(e) => e.target.select()} onBlur={() => rename(renaming)}
@@ -221,6 +273,7 @@ export function AgentPanel() {
         </button>
         )}
         {state !== 'ended' && state !== 'starting' && <button className="ag-btn" onClick={openTerm} title="Jump to this terminal in Orca">Open ↗</button>}
+        {geom && <button className="ag-btn" onClick={dock} title="Put it back on the right">⇥</button>}
         <button className="ag-btn" onClick={() => toggle(false)} title="Hide">✕</button>
         {menu && (
           <div className="ag-menu">

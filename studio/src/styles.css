@@ -272,6 +272,13 @@ div.drag-ghost { background: rgba(13,153,255,0.12); }
 @keyframes agpulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
 .ag-panel { position: absolute; right: 12px; top: 50px; bottom: 70px; width: 380px; z-index: 6; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 32px rgba(0,0,0,.5); font-size: 13px; overflow: hidden; user-select: text; }
 .ag-panel.dropping { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.ag-panel.free { right: auto; bottom: auto; }
+.ag-head { cursor: grab; } .ag-head:active { cursor: grabbing; } .ag-head button, .ag-head input { cursor: pointer; }
+.ag-edge { position: absolute; z-index: 3; }
+.ag-n, .ag-s { left: 10px; right: 10px; height: 8px; cursor: ns-resize; } .ag-n { top: -4px; } .ag-s { bottom: -4px; }
+.ag-e, .ag-w { top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; } .ag-e { right: -4px; } .ag-w { left: -4px; }
+.ag-ne, .ag-nw, .ag-se, .ag-sw { width: 14px; height: 14px; } .ag-ne { top: -4px; right: -4px; cursor: nesw-resize; } .ag-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.ag-nw { top: -4px; left: -4px; cursor: nwse-resize; } .ag-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
 .ag-head { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 6px; border-bottom: 1px solid var(--line); }
 .ag-pick { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 0 1 auto; margin-right: auto; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--text); font-weight: 600; text-align: left; }
 .ag-pick:hover, .ag-pick.on { background: var(--bg3); }

@@ -4,6 +4,7 @@ A local setup for running lots of Claude Code sessions at once without losing tr
 
 - **Work board** (http://127.0.0.1:4477): a kanban with Next · Deep focus · Orchestrating · Done columns. Claude puts a card on it when it starts a task and marks it **Ready for review** when it thinks it's finished. Only you move cards to Done. It also saves the links you'll need into the card's notes.
 - **Start an agent from a card:** open a card and press **Start**. A new Orca tab opens with Claude in the brand's project folder, with the task as its first message. The session links itself to the card. **+ New** adds another session to a card that already has one.
+- **Wider card panel:** drag the card panel's left edge to make it wider. Every card opens at that width; double-click the edge to reset.
 - **Today's goal:** a line in the Next column. Cards above it are for today, cards below are for later.
 - **Search Done:** a search bar on the Done column. It finds titles, notes, links, steps, Studio boards and what you asked each session, and it tolerates typos.
 - **Live sessions on every card:**
@@ -15,6 +16,7 @@ A local setup for running lots of Claude Code sessions at once without losing tr
   - Agents write the HTML. You edit it like Figma: click anything, drag it anywhere (between frames, onto the board, into an email), resize, rotate, retype and restyle. Your edits are written back into the file, and the `studio` CLI tells agents exactly what you changed.
   - Agents learn how to build editable designs when they save one on a board: a hook runs Studio's check and hands them the rules and anything to fix. Sessions that never touch Studio never see it.
   - The side panels open and close (corner buttons, ⌘\ for both).
+  - The Claude panel can be dragged anywhere and resized from any edge; ⇥ docks it again.
   - Plan on the same canvas: step boxes chained with arrows, sections, pictures and videos with notes, and links. `studio plan` turns the plan into text Claude reads before it starts.
   - Pin comments on any element, then press **Send comments to agent** to hand them all to a session in one go. If the board has several sessions, you pick which one.
   - **Slice** an email into pieces and export them for your email tool, or export any design as PNG/JPG.

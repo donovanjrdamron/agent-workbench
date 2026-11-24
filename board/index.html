@@ -275,8 +275,16 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 /* side peek */
 .scrim{position:fixed;inset:0;background:rgba(15,15,15,.12);opacity:0;pointer-events:none;transition:opacity .15s}
 .scrim.on{opacity:1;pointer-events:auto}
-.peek{position:fixed;top:0;right:0;bottom:0;width:min(560px,100vw);background:var(--bg);box-shadow:var(--peek-shadow);transform:translateX(102%);transition:transform .2s ease;overflow-y:auto;z-index:5}
+.peek{position:fixed;top:0;right:0;bottom:0;width:min(var(--peek-w,560px),100vw);background:var(--bg);box-shadow:var(--peek-shadow);transform:translateX(102%);transition:transform .2s ease;overflow-y:auto;z-index:5}
 .peek.on{transform:none}
+/* drag the panel's left edge to make it wider; the width is kept for every card */
+.peek-grip{position:fixed;top:0;bottom:0;right:min(var(--peek-w,560px),100vw);width:10px;margin-right:-5px;cursor:ew-resize;z-index:6;display:none}
+.peek.on + .peek-grip{display:block}
+.peek-grip::after{content:"";position:absolute;top:0;bottom:0;left:4px;width:2px;background:var(--accent);opacity:0;transition:opacity .15s}
+.peek-grip:hover::after,.peek-grip.drag::after{opacity:.7}
+body.peek-sizing{cursor:ew-resize;user-select:none}
+body.peek-sizing .peek{transition:none}
+@media (max-width:700px){.peek-grip{display:none!important}}
 .peek-top{display:flex;justify-content:space-between;padding:10px 12px;position:sticky;top:0;background:var(--bg)}
 .iconbtn{padding:4px 8px;border-radius:4px;color:var(--muted)}
 .iconbtn:hover{background:var(--hover)}
@@ -359,7 +367,7 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 </div>
 
 <div class="scrim" id="scrim"></div>
-<aside class="peek" id="peek"></aside>
+<aside class="peek" id="peek"></aside><div class="peek-grip" id="peekgrip" title="Drag to resize (double-click resets)"></div>
 <div class="saved" id="saved">Saved</div>
 
 <script>
@@ -392,6 +400,23 @@ function settle(){ if(holding()) return; const f = owed; owed = null; if(f) f();
 document.addEventListener("pointerdown", e => { if(e.target.closest?.(".card")) pressed = true; }, true);
 for(const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, () => { pressed = false; setTimeout(settle, 0); }, true);
 document.addEventListener("dragend", () => { pressed = false; setTimeout(settle, 0); }, true);
+/* card panel width: drag its edge; kept in this browser for every card until changed again */
+(() => {
+  const root = document.documentElement, grip = document.getElementById("peekgrip");
+  const clampW = w => Math.round(Math.max(420, Math.min(w, window.innerWidth * 0.92)));
+  const setW = w => root.style.setProperty("--peek-w", clampW(w) + "px");
+  try{ const w = Number(localStorage.getItem("peekWidth")); if(w) setW(w); }catch(e){}
+  grip.addEventListener("pointerdown", e => {
+    e.preventDefault(); grip.setPointerCapture(e.pointerId); grip.classList.add("drag"); document.body.classList.add("peek-sizing");
+    const move = ev => setW(window.innerWidth - ev.clientX);
+    const up = () => {
+      grip.removeEventListener("pointermove", move); grip.classList.remove("drag"); document.body.classList.remove("peek-sizing");
+      try{ localStorage.setItem("peekWidth", parseInt(getComputedStyle(root).getPropertyValue("--peek-w"))); }catch(e){}
+    };
+    grip.addEventListener("pointermove", move); grip.addEventListener("pointerup", up, {once: true}); grip.addEventListener("pointercancel", up, {once: true});
+  });
+  grip.addEventListener("dblclick", () => { root.style.removeProperty("--peek-w"); try{ localStorage.removeItem("peekWidth"); }catch(e){} });
+})();
 let saveT;
 let dirty = false;
 let synced = {};          // id -> JSON of each card as last agreed with the server
@@ -488,7 +513,7 @@ function cardHTML(c, hit){
   const n = c.steps?.length||0, d = (c.steps||[]).filter(s=>s.done).length;
   return `<div class="card ${c.status==="Done"?"done":""}" draggable="true" data-id="${c.id}">
     <div class="t">${hit ? hit.title : esc(c.title)||''}</div>${hit?.why ? `<div class="why">${hit.why}</div>` : ""}
-    <div class="meta">${tag(c.brand)}${c.ready && c.status!=="Done"?`<span class="ready" title="The agent thinks this is finished. Move it to Done when you agree.">Ready for review</span>`:""}${agents[c.id]?.state==="working"?`<span class="cspin" title="An agent is working on this">${SPIN}</span>`:""}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
+    <div class="meta">${tag(c.brand)}${agents[c.id]?.state==="working"?`<span class="cspin" title="An agent is working on this">${SPIN}</span>`:""}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
   </div>`;
 }
 
