@@ -56,7 +56,7 @@ write_session() {   # $1=state(working|waiting) $2=input json
   sid=$(jq -r '.session_id // empty' <<<"$2"); tr=$(jq -r '.transcript_path // empty' <<<"$2"); cwd=$(jq -r '.cwd // empty' <<<"$2")
   mkdir -p "$SESS_DIR"
   jq -n --arg pid "$pid" --arg sid "$sid" --arg tr "$tr" --arg cwd "$cwd" --arg st "$1" \
-        --arg term "${ORCA_TERMINAL_HANDLE:-}" --argjson ts "$(date +%s)" \
-        '{pid:$pid,sid:$sid,transcript:$tr,cwd:$cwd,state:$st,terminal:$term,ts:$ts}' > "$SESS_DIR/$pid.json.tmp" \
+        --arg term "${ORCA_TERMINAL_HANDLE:-}" --arg pane "${ORCA_PANE_KEY:-}" --argjson ts "$(date +%s)" \
+        '{pid:$pid,sid:$sid,transcript:$tr,cwd:$cwd,state:$st,terminal:$term,pane:$pane,ts:$ts}' > "$SESS_DIR/$pid.json.tmp" \
     && mv "$SESS_DIR/$pid.json.tmp" "$SESS_DIR/$pid.json"
 }

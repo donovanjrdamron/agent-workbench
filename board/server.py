@@ -307,6 +307,40 @@ def orca(*args):
     try: return json.loads(r.stdout)
     except Exception: return {"ok": False, "error": (r.stderr or r.stdout)[:300]}
 
+import threading
+SEND_LOCK = threading.Lock()
+
+def orca_err(r):
+    """Orca's error as words (it comes as {"code", "message"})."""
+    e = r.get("error")
+    if isinstance(e, dict): e = e.get("message") or e.get("code")
+    e = str(e or "Orca didn't answer")
+    return {"terminal_handle_stale": "Orca lost track of this session's terminal. Click it in Orca once (or send from there), then try again."}.get(e, e)
+
+def live_term(st):
+    """The session's terminal as Orca knows it now. Orca sometimes issues new handles (after it reloads), and the one the
+    session started with goes stale; its tab and pane stay the same, so look it up by those."""
+    rec, a = st.get("rec") or {}, st.get("agent") or {}
+    term, pane = rec.get("terminal") or a.get("terminal"), rec.get("pane") or ""
+    r = orca("terminal", "list")
+    ts = (r.get("result") or {}).get("terminals") or []
+    if not r.get("ok") or not ts: return term
+    if any(t.get("handle") == term for t in ts): return term
+    hit = next((t["handle"] for t in ts if pane and f'{t.get("tabId")}:{t.get("leafId")}' == pane), None)
+    if not hit and not pane:   # saved before panes were recorded: the one tab with this session's name, in its folder
+        name = session_title(st.get("transcript") or "") if st.get("transcript") else ""
+        clean = lambda t: re.sub(r"^[^\w(]+", "", t or "").strip()
+        cwd = rec.get("cwd") or a.get("cwd") or ""
+        same = [t["handle"] for t in ts if name and clean(t.get("title")) == clean(name) and (not cwd or t.get("worktreePath") == cwd or cwd.startswith((t.get("worktreePath") or "\0") + "/"))]
+        if len(same) == 1: hit = same[0]
+    if hit and rec.get("pid"):   # remember it, so the next message goes straight there
+        f = os.path.join(SESS_DIR, f'{rec["pid"]}.json')
+        try:
+            d = json.load(open(f)); d["terminal"] = hit
+            tmp = f + ".tmp"; json.dump(d, open(tmp, "w"), indent=2); os.replace(tmp, f)
+        except Exception: pass
+    return hit or term
+
 # ---------- close a finished card's Orca tabs ----------
 def _terminal_busy_elsewhere(term, pid, cid):
     """True when this terminal/session also belongs to a card that is not Done."""
@@ -663,21 +697,26 @@ class H(BaseHTTPRequestHandler):
             st = row["st"] if row else None
             if not st or st["state"] == "ended":
                 return self.send(409, json.dumps({"error": "That Claude session isn't running anymore."}))
-            term = st["rec"].get("terminal") or st["agent"].get("terminal")
+            term = live_term(st)
             if not term: return self.send(409, json.dumps({"error": "This session wasn't started inside Orca."}))
             if action == "open":
                 r = orca("terminal", "switch", "--terminal", term)
                 import subprocess; subprocess.run(["/usr/bin/open", "-a", "Orca"])
-                return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": r.get("error")}))
+                return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": None if r.get("ok") else orca_err(r)}))
             try: text = json.loads(self.body()).get("text", "")
             except Exception: text = ""
             text = " ".join(str(text).split())[:4000]       # one line: a newline would send early
             if text == "\u001b":                                # the Stop button: Esc interrupts what Claude is doing
                 r = orca("terminal", "send", "--terminal", term, "--text", "\u001b")
-                return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": r.get("error")}))
+                return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": None if r.get("ok") else orca_err(r)}))
             if not text: return self.send(400, json.dumps({"error": "empty"}))
-            r = orca("terminal", "send", "--terminal", term, "--text", text, "--enter")
-            return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": r.get("error")}))
+            with SEND_LOCK:   # one at a time: two messages typed into a terminal at once collide
+                r = orca("terminal", "send", "--terminal", term, "--text", text, "--enter")
+                if not r.get("ok"):   # a hiccup, or the handle went stale between messages: look again and retry once
+                    time.sleep(0.4); term = live_term(st)
+                    r = orca("terminal", "send", "--terminal", term, "--text", text, "--enter")
+            if not r.get("ok"): open(os.path.join(HERE, "server.log"), "a").write(f"send {cid} {term}: {r.get('error')}\n")
+            return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": None if r.get("ok") else orca_err(r)}))
         m = re.match(r"^/api/studio/([^/]+)$", self.path.split("?")[0])
         if m:   # open this card's Studio board, making it on first use
             cid = unquote(m.group(1))
