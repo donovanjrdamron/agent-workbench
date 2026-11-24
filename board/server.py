@@ -531,6 +531,7 @@ import threading, sys
 sys.path.insert(0, HERE)
 import automations
 SEND_LOCK = threading.Lock()
+TERM_CACHE = {}   # pid -> (terminal handle, when looked up)
 
 def orca_err(r):
     """Orca's error as words (it comes as {"code", "message"})."""
@@ -1022,10 +1023,16 @@ class H(BaseHTTPRequestHandler):
             row = next((r for r in rows if r["pid"] == self.query("pid")), None)
             st = row["st"] if row else None
             if not st or st["state"] == "ended": return self.send(409, json.dumps({"error": "That Claude session isn't running anymore."}))
-            term = live_term(st)
+            k = row["pid"]; hit = TERM_CACHE.get(k)
+            term = hit[0] if hit and time.time() - hit[1] < 60 else live_term(st)   # pressing fast: skip looking the terminal up each time
             if not term: return self.send(409, json.dumps({"error": "This session wasn't started inside Orca."}))
-            try: to = str(json.loads(self.body() or "{}").get("to") or "")[:40] or None
-            except Exception: to = None
+            TERM_CACHE[k] = (term, time.time())
+            try: body = json.loads(self.body() or "{}"); to = str(body.get("to") or "")[:40] or None; press = int(body.get("press") or 0)
+            except Exception: to, press = None, 0
+            if press:   # just the keys, straight away; the chat checks the mode itself a moment later
+                r = orca("terminal", "send", "--terminal", term, "--text", "\u001b[Z" * max(1, min(press, 6)))
+                if not r.get("ok"): TERM_CACHE.pop(k, None)
+                return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": None if r.get("ok") else orca_err(r)}))
             if self.query("peek"): return self.send(200, json.dumps({"mode": screen_mode(term)}))
             with SEND_LOCK: mode, err = cycle_mode(term, to)
             return self.send(502 if err else 200, json.dumps({"mode": mode, "error": err}))

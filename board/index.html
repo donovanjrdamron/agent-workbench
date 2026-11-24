@@ -1361,6 +1361,29 @@ async function mountAgent(c){
     if(r.error && cycle) alert(r.error);
     if(typeof r.mode === "string"){ mode = r.mode; modeOf = pid; paintMode(); }
   };
+  // Shift+Tab feels instant: the label moves at once (in the order Claude cycles, learned as it goes), the keys go
+  // straight to the terminal, and the real mode is read back once you stop pressing
+  const MODE_ORDER = ["bypass permissions", "auto mode", "manual mode", "accept edits", "plan mode"];
+  const nextMode = m => { let L = {}; try{ L = JSON.parse(localStorage.getItem("modeNext") || "{}"); }catch(e){}
+    return L[m] || MODE_ORDER[(MODE_ORDER.indexOf(m) + 1) % MODE_ORDER.length] || ""; };
+  let presses = 0, pressT = 0, checkT = 0, fromMode = "", pressN = 0;
+  const pressMode = () => {
+    if(!d || !d.canSend) return;
+    if(!pressN) fromMode = mode;
+    pressN++; presses++;
+    if(mode){ mode = nextMode(mode); paintMode(); }
+    clearTimeout(pressT); clearTimeout(checkT);
+    pressT = setTimeout(async () => {
+      const n = presses; presses = 0;
+      const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/mode?pid=${encodeURIComponent(d.pid)}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({press: n})}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
+      if(r.error){ alert(r.error); pressN = 0; modeCall(false); return; }
+      checkT = setTimeout(async () => {
+        const was = fromMode, n = pressN; pressN = 0;
+        await modeCall(false);
+        if(n === 1 && was && mode && was !== mode){ try{ const L = JSON.parse(localStorage.getItem("modeNext") || "{}"); L[was] = mode; localStorage.setItem("modeNext", JSON.stringify(L)); }catch(e){} }
+      }, 700);
+    }, 120);
+  };
   let sent = [], sentAt = 0;   // messages you just sent, shown at once until the session's own record has them
   // working, or you just sent something it hasn't answered yet: show Thinking (and Stop) straight away
   // Claude's multiple-choice questions (AskUserQuestion): shown in the chat with clickable answers
@@ -1541,7 +1564,7 @@ async function mountAgent(c){
       ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; paintGo(); suggest(); };
       ta.onblur = () => setTimeout(closeCmds, 150);
       ta.onkeydown = e => {
-        if(e.key === "Tab" && e.shiftKey && !hits.length){ e.preventDefault(); modeCall(true); return; }
+        if(e.key === "Tab" && e.shiftKey && !hits.length){ e.preventDefault(); pressMode(); return; }
         if(hits.length){
           if(e.key === "ArrowDown" || e.key === "ArrowUp"){ e.preventDefault(); at = (at + (e.key === "ArrowDown" ? 1 : hits.length - 1)) % hits.length; drawCmds(); return; }
           if((e.key === "Enter" || e.key === "Tab") && !e.isComposing){ e.preventDefault(); pickCmd(hits[at].name); return; }
@@ -1551,7 +1574,7 @@ async function mountAgent(c){
       };
       const drops = attachDrops(box.querySelector(".ag"), ta);
       f.querySelector(".ag-clip").onclick = () => file.click();
-      f.querySelector(".ag-mode").onclick = () => { modeCall(true); ta.focus(); };
+      f.querySelector(".ag-mode").onclick = () => { pressMode(); ta.focus(); };
       file.onchange = () => { if(file.files.length) drops([...file.files]); file.value = ""; };
       box.querySelector(".ag-on").onclick = () => resume();
       f.onsubmit = async e => {
@@ -1648,7 +1671,7 @@ async function mountAgent(c){
     paint();
     drawMsgs(fresh);
     if(modeOf !== d.pid){ mode = ""; modeOf = d.pid; }
-    paintMode(); modeCall(false);   // whenever the chat changes: plan mode ends itself, for one
+    paintMode(); if(!pressN) modeCall(false);   // whenever the chat changes: plan mode ends itself, for one
   };
   await load();
   agentTimer = setInterval(load, 3000);

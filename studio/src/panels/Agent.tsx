@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from 'react'
 import { renderMd } from '../md'
 import { toast, useStore } from '../store'
 import { wb, wbBase } from '../workboard'
+const MODE_ORDER = ['bypass permissions', 'auto mode', 'manual mode', 'accept edits', 'plan mode']
+const learned = (): Record<string, string> => { try { return JSON.parse(localStorage.getItem('modeNext') || '{}') } catch { return {} } }
+const nextMode = (m: string) => learned()[m] || MODE_ORDER[(MODE_ORDER.indexOf(m) + 1) % MODE_ORDER.length] || ''
+const learnMode = (from: string, to: string) => { try { localStorage.setItem('modeNext', JSON.stringify({ ...learned(), [from]: to })) } catch { /* private window */ } }
 const MODE_NAME: Record<string, string> = { 'bypass permissions': 'Bypass permissions', 'auto mode': 'Auto mode', 'manual mode': 'Manual', 'accept edits': 'Accept edits', 'plan mode': 'Plan mode' }
 
 type State = 'working' | 'waiting' | 'ended' | 'starting'
@@ -164,8 +168,36 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
     if (r.error && cycle) alert(r.error)
     if (typeof r.mode === 'string') setMode(r.mode)
   }
+  // Shift+Tab feels instant: the label moves at once (in the order Claude cycles, learned as it goes), the keys go
+  // straight to the terminal, and the real mode is read back once you stop pressing
+  const press = useRef({ n: 0, total: 0, from: '', t: 0 as ReturnType<typeof setTimeout> | 0, check: 0 as ReturnType<typeof setTimeout> | 0 })
+  const pressMode = () => {
+    if (!cur || !agent?.canSend) return
+    const p = press.current
+    if (!p.total) p.from = mode
+    p.total++; p.n++
+    setMode((m) => (m ? nextMode(m) : m))
+    if (p.t) clearTimeout(p.t)
+    if (p.check) clearTimeout(p.check)
+    p.t = setTimeout(async () => {
+      const n = p.n; p.n = 0
+      const r = await fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/mode?pid=${encodeURIComponent(cur.pid)}`, { method: 'POST', body: JSON.stringify({ press: n }) }).then((r) => r.json()).catch(() => ({ error: 'The work board is not answering' }))
+      if (r.error) { alert(r.error); p.total = 0; modeCall(false); return }
+      p.check = setTimeout(async () => {
+        const was = p.from, total = p.total; p.total = 0
+        const now = await peekMode()
+        if (total === 1 && was && now && was !== now) learnMode(was, now)
+      }, 700)
+    }, 120)
+  }
+  const peekMode = async () => {
+    if (!cur) return ''
+    const r = await fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/mode?pid=${encodeURIComponent(cur.pid)}&peek=1`, { method: 'POST', body: '{}' }).then((r) => r.json()).catch(() => ({}))
+    if (typeof r.mode === 'string') { setMode(r.mode); return r.mode as string }
+    return ''
+  }
   useEffect(() => { setMode('') }, [cur?.cid, cur?.pid])
-  useEffect(() => { if (open) modeCall(false) }, [cur?.cid, cur?.pid, open, agent?.canSend, agent?.messages?.length, agent?.state])   // plan mode ends itself, for one
+  useEffect(() => { if (open && !press.current.total) modeCall(false) }, [cur?.cid, cur?.pid, open, agent?.canSend, agent?.messages?.length, agent?.state])   // plan mode ends itself, for one
   useEffect(() => {
     const el = list.current
     if (!el || !agent?.messages) return
@@ -380,7 +412,7 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
             onBlur={() => setTimeout(() => setHits([]), 150)}
             onPaste={(e) => { const fs = [...e.clipboardData.files]; if (fs.length) { e.preventDefault(); e.stopPropagation(); attach(fs) } }}
             onKeyDown={(e) => {
-              if (e.key === 'Tab' && e.shiftKey && !hits.length) { e.preventDefault(); modeCall(true); return }
+              if (e.key === 'Tab' && e.shiftKey && !hits.length) { e.preventDefault(); pressMode(); return }
               if (hits.length) {
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setAt((a) => (a + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length); return }
                 if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) { e.preventDefault(); pickCmd(hits[at].name); return }
@@ -403,7 +435,7 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
               <svg viewBox="0 0 16 16" width="16" height="16"><path d="M10.5 4.5l-5 5a1.4 1.4 0 0 0 2 2l5.2-5.2a2.8 2.8 0 0 0-4-4L3.5 7.5a4.2 4.2 0 0 0 6 6l4-4" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
             {mode && (
-              <button type="button" className="ag-mode" data-m={mode.split(' ')[0]} title="Permission mode. Click or press Shift+Tab to change it" onClick={() => { modeCall(true); area.current?.focus() }}>
+              <button type="button" className="ag-mode" data-m={mode.split(' ')[0]} title="Permission mode. Click or press Shift+Tab to change it" onClick={() => { pressMode(); area.current?.focus() }}>
                 {/^(plan|manual)/.test(mode) ? '⏸ ' : '⏵⏵ '}{MODE_NAME[mode] || mode[0].toUpperCase() + mode.slice(1)}
               </button>
             )}
