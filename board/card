@@ -65,7 +65,7 @@ def remind(a):
     if a[0] == "remind":
         if len(a) < 4: print('usage: card remind <card id> <when> "<what to do, and what to report back>"\n  when: 30m, 2h, 5:30pm, tomorrow 9am, every 30m, every day 9am, every weekday 9am'); return 1
         rest = a[3:]; name = ""
-        if "--title" in rest:   # optional short name for the list: --title "Re-check Parlay tracking"
+        if "--title" in rest:   # optional short name for the list: --title "Re-check the tracking numbers"
             i = rest.index("--title"); name = " ".join(rest[i + 1:i + 2]); rest = rest[:i] + rest[i + 2:]
         r = api("POST", "/api/automations", {"card": "" if a[1] == "-" else a[1], "when": a[2], "prompt": " ".join(rest), "name": name, "pid": claude_pid() or ""})
         if r.get("error"): print("not set:", r["error"]); return 1
