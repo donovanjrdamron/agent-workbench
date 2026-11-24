@@ -13,7 +13,8 @@ import { createServer as createVite } from 'vite'
 import { annotate, applyEdits, describe, indexHtml, lint, oneTagPerLine, outline } from './html'
 import { SIZES, type Board, type Comment, type Design, type Edit, type Item } from '../shared/types'
 import { planOf } from './plan'
-import { AiError, runAi, type AiOp } from './ai'
+import { AiError, runAi, sizeOf, type AiOp } from './ai'
+import { loadPresets, runGrade, savePresets, type Grade, type Presets } from './grades'
 import * as hfmcp from './hfmcp'
 
 const PORT = Number(process.env.STUDIO_PORT || 4517)
@@ -975,6 +976,29 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const abs = path.join(dir, hash(buf.toString('binary')) + ext)
     fs.writeFileSync(abs, buf)
     return json(res, { src: path.relative(id ? path.dirname(path.join(rt.root, id)) : path.join(rt.root, LOOSE), abs).split(path.sep).join('/'), path: path.relative(rt.root, abs).split(path.sep).join('/') }), true
+  }
+  if (p === '/api/grade-presets') {
+    // the brand grades you can pick in the Grade panel (saved next to the boards)
+    if (post && b.presets && typeof b.presets === 'object') savePresets(ROOT, b.presets as Presets)
+    return json(res, { presets: loadPresets(ROOT) }), true
+  }
+  if ((p === '/api/grade-preview' || p === '/api/grade') && post) {
+    // grade a picture: a quick small preview while you drag the sliders, or the full picture (saved under studio-assets/,
+    // metadata gone) that replaces it as one undo step
+    const bytes = (d: unknown) => (typeof d === 'string' && d.includes(',') ? Buffer.from(d.slice(d.indexOf(',') + 1), 'base64') : undefined)
+    const image = bytes(b.image)
+    if (!image?.length) throw new HttpError(400, 'missing image')
+    const g = b.grade as Grade
+    let out: Buffer
+    try { out = await runGrade(image, p === '/api/grade-preview' ? { ...g, max: Number(b.max) || 1400, fullw: Number(b.fullw) || 0 } : g) } catch (e) { throw new HttpError(422, (e as Error).message) }
+    const jpg = out[0] === 0xff && out[1] === 0xd8
+    if (p === '/api/grade-preview') return json(res, { ok: true, url: `data:image/${jpg ? 'jpeg' : 'png'};base64,${out.toString('base64')}` }), true
+    const rel = `studio-assets/grade-${crypto.createHash('sha1').update(out).digest('hex').slice(0, 12)}.${jpg ? 'jpg' : 'png'}`
+    fs.mkdirSync(path.join(rt.root, 'studio-assets'), { recursive: true })
+    fs.writeFileSync(path.join(rt.root, rel), out)
+    const abs = path.join(rt.root, rel)
+    const size = sizeOf(out) || { w: 1, h: 1 }
+    return json(res, { ok: true, path: rel, ...size, src: path.relative(id ? path.dirname(path.join(rt.root, id)) : path.join(rt.root, LOOSE), abs).split(path.sep).join('/') }), true
   }
   if (p === '/api/ai' && post) {
     // remove background / edit / expand / erase a picture. The picture comes as a data URL (what is on screen); the

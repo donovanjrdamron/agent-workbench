@@ -12,6 +12,7 @@ import { get, select, set, toast } from '../store'
 import { startExpand } from './Expand'
 import { startCrop } from './Crop'
 import { startSlicing } from './Slices'
+import { copyImage, openGrade } from '../grade'
 import { rotOf } from './Overlay'
 
 type Entry = { label: string; keys?: string; run: () => void; disabled?: boolean; danger?: boolean } | 'sep'
@@ -21,6 +22,8 @@ export const useMenu = create<{ at: { x: number; y: number }; entries: Entry[] }
 const reveal = (design: string, src?: string) =>
   fetch('/api/reveal-file', { method: 'POST', body: JSON.stringify({ board: get().board, design: design || undefined, src }) })
     .then((r) => r.json()).then((j) => { if (j.error) toast(j.error) }).catch(() => toast("Couldn't reach Studio"))
+// every picture: grade it with a brand preset (live, adjustable), or copy it to paste anywhere
+const picEntries = (t: Parameters<typeof openGrade>[0]): Entry[] => [{ label: 'Brand grade…', run: () => openGrade(t) }, { label: 'Copy image', run: () => copyImage(t) }, 'sep']
 const revealEntry = (design: string, src?: string): Entry[] => [{ label: 'Reveal in Finder', run: () => reveal(design, src) }, 'sep']
 const flipEls = (design: string, els: HTMLElement[], axis: 'x' | 'y') => {
   for (const el of els) {
@@ -45,9 +48,10 @@ function frameMenu(design: string, p: { x: number; y: number }): Entry[] {
   // a loose picture on the board: reveal the picture itself; any other frame: its HTML file
   const lone = d?.loose ? piecesOf(design) : []
   const under = pick(design, p, true) // (a big picture counts as the frame's background, but it is still the one you clicked)
-  const img = lone.length === 1 && lone[0].tagName === 'IMG' ? lone[0].getAttribute('src') : under?.tagName === 'IMG' ? under.getAttribute('src') : null
+  const picEl = lone.length === 1 && lone[0].tagName === 'IMG' ? lone[0] : under?.tagName === 'IMG' ? under : null
+  const img = picEl?.getAttribute('src') || null
   return [
-    ...(img ? [{ label: 'Reveal in Finder', run: () => reveal(design, img) } as Entry, { label: 'Reveal the HTML file', run: () => reveal(design) } as Entry, 'sep' as const] : revealEntry(design)),
+    ...(img ? [{ label: 'Reveal in Finder', run: () => reveal(design, img) } as Entry, { label: 'Reveal the HTML file', run: () => reveal(design) } as Entry, ...picEntries({ kind: 'el', design, sid: sidOf(picEl!) })] : revealEntry(design)),
     { label: 'Copy', keys: '⌘C', run: () => copyFrames([design]) },
     { label: 'Duplicate', keys: '⌘D', run: () => duplicateFrames([design]) },
     { label: 'Paste into frame', keys: '⌘V', run: () => paste() },
@@ -84,7 +88,7 @@ function framesMenu(ids: string[]): Entry[] {
 function pieceMenu(design: string, els: HTMLElement[], p: { x: number; y: number }): Entry[] {
   const one = els.length === 1 ? els[0] : null
   return [
-    ...(one?.tagName === 'IMG' && one.getAttribute('src') ? revealEntry(design, one.getAttribute('src')!) : []),
+    ...(one?.tagName === 'IMG' && one.getAttribute('src') ? [{ label: 'Reveal in Finder', run: () => reveal(design, one.getAttribute('src')!) } as Entry, ...picEntries({ kind: 'el', design, sid: sidOf(one) })] : []),
     { label: 'Copy', keys: '⌘C', run: () => copy() },
     { label: 'Cut', keys: '⌘X', run: () => { copy(); deleteSelection() } },
     { label: 'Paste', keys: '⌘V', run: () => paste() },
@@ -116,7 +120,7 @@ function itemMenu(ids: string[]): Entry[] {
   const one = ids.length === 1 ? s.items[ids[0]] : null
   const turnable = ids.map((i) => s.items[i]).filter((i) => i && i.kind !== 'arrow' && i.kind !== 'section')
   return [
-    ...(one && (one.kind === 'image' || one.kind === 'video') && one.src ? revealEntry('', one.src) : []),
+    ...(one && (one.kind === 'image' || one.kind === 'video') && one.src ? [{ label: 'Reveal in Finder', run: () => reveal('', one.src!) } as Entry, ...(one.kind === 'image' ? picEntries({ kind: 'item', id: one.id }) : ['sep' as const])] : []),
     { label: 'Copy', keys: '⌘C', run: () => copyItems() },
     { label: 'Cut', keys: '⌘X', run: () => copyItems(true) },
     { label: 'Paste', keys: '⌘V', run: () => { if (!pasteItems()) toast('Nothing copied yet') } },

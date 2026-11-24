@@ -1,3 +1,4 @@
+import { applyGrade, closeGrade, copyImage, useGrade } from './grade'
 import { adoptClip, clipText, copy, copyFrames, duplicateFrames, pasteFrames, selectedFrames, deleteSelection, removeDesigns, style, duplicate, editSelected, finishEditing, fitAll, fitSelection, insertImages, nudge, paste, redo, selectParent, undo, undoStyle, zOrder, zoomTo } from './commands'
 import { get, select, selectFrames, set, toast, type Tool } from './store'
 import { addLink, addMedia, copyItems, duplicateItems, flipItems, hasItemClip, looksLikeUrl, mediaFiles, nudgeItems, pasteItems, removeItems, selectAllItems, selectItems, startEdit, viewCenter } from './items'
@@ -22,7 +23,7 @@ function itemKeys(e: KeyboardEvent) {
   if (k === 'enter' && one && one.kind !== 'arrow' && (one.kind === 'box' || one.kind === 'text' || one.kind === 'section')) { startEdit(one.id); return take() }
   if (k.startsWith('arrow') && !mod) { const d = e.shiftKey ? 50 : 10; nudgeItems(k === 'arrowleft' ? -d : k === 'arrowright' ? d : 0, k === 'arrowup' ? -d : k === 'arrowdown' ? d : 0); return take() }
   if (mod && k === 'd') { duplicateItems(); return take() }
-  if (mod && (k === 'c' || k === 'x')) { copyItems(k === 'x'); return take() } // (never the design copy: no design is selected)
+  if (mod && (k === 'c' || k === 'x')) { copyItems(k === 'x'); if (k === 'c' && one?.kind === 'image') copyImage({ kind: 'item', id: one.id }); return take() } // (never the design copy: no design is selected); a picture also goes on the Mac's clipboard
   if (e.shiftKey && !mod && (k === 'h' || k === 'v')) { flipItems(k === 'h' ? 'x' : 'y'); return take() }
   // just made a box (or picked an empty one) and started typing: the key goes into it
   if (!mod && !e.altKey && e.key.length === 1 && one && (one.kind === 'box' || one.kind === 'text') && !one.text) { startEdit(one.id, e.key); return take() }
@@ -33,6 +34,12 @@ export function installKeys() {
   // of view. Only the canvas zooms (it handles its own pinch); everywhere else the page stays at 100%.
   window.addEventListener('wheel', (e) => { if (e.ctrlKey && !(e.target as Element)?.closest?.('.canvas')) e.preventDefault() }, { passive: false })
   for (const g of ['gesturestart', 'gesturechange', 'gestureend']) window.addEventListener(g, (e) => e.preventDefault(), { passive: false })
+  // the Grade panel is open: Esc cancels it (the picture goes back), ⌘Enter applies; before any other shortcut
+  window.addEventListener('keydown', (e) => {
+    if (!useGrade.getState().target) return
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closeGrade() }
+    else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopImmediatePropagation(); applyGrade() }
+  }, true)
   window.addEventListener('keydown', itemKeys, true)
   const down = (e: KeyboardEvent) => {
     if (typing(e.target) && !get().ask) { if (e.key === 'Escape') (e.target as HTMLElement).blur(); return }
@@ -45,7 +52,13 @@ export function installKeys() {
     if (s.editing) { if (e.key === 'Escape') { finishEditing(); done() } else if (mod && k === 'z' && !e.shiftKey) { undoStyle(); done() } return }
     if (e.code === 'Space') { if (!s.space) set({ space: true }); return done() }
     if (mod && k === 'z') { e.shiftKey ? redo() : undo(); return done() }
-    if (mod && k === 'c') { if (!copyFrames()) copy(); return done() } // a whole frame, or what is selected inside one
+    if (mod && k === 'c') {   // a whole frame, or what is selected inside one; a picture also goes on the Mac's clipboard
+      if (!copyFrames()) copy()
+      const d = s.sel.design, lone = d && !s.sel.sids.length && s.designs[d]?.loose ? piecesOf(d) : []
+      const pic = d ? (s.sel.sids.length === 1 ? elOf(d, s.sel.sids[0]) : lone.length === 1 ? lone[0] : null) : null
+      if (d && pic?.tagName === 'IMG') copyImage({ kind: 'el', design: d, sid: sidOf(pic) })
+      return done()
+    }
     if (mod && k === 'x') { if (s.sel.sids.length) { copy(); deleteSelection() } return done() } // never the whole design
     if (mod && k === 'd') { if (selectedFrames().length) duplicateFrames(); else duplicate(); return done() }
     if (mod && k === 'a') { // everything in the selected ad, else every planning object on the board

@@ -24,6 +24,8 @@ chmod +x studio/bin/studio
 ln -sfn "$REPO/studio/bin/studio" "$S/board/studio"
 echo "✓ Studio ready (studio help)"
 
+python3 -c "import numpy, PIL" 2>/dev/null || echo "! Studio's brand grade needs Python with numpy and Pillow:  pip3 install numpy pillow"
+
 # 3. hooks + status line in ~/.claude/settings.json
 SET="$HOME/.claude/settings.json"; [ -f "$SET" ] || echo '{}' > "$SET"
 cp "$SET" "$SET.pre-workbench.bak"

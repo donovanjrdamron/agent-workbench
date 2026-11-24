@@ -81,7 +81,7 @@ export async function runTool(tool: Tool, target: Target, opts: RunOpts = {}) {
 }
 
 /** Swap the result in: same place, same width; an expanded picture grows around its old middle (the old part keeps its size). */
-function place(t: Target, r: { path: string; src: string; w: number; h: number }, img: HTMLImageElement, expanded: boolean) {
+export function place(t: Target, r: { path: string; src: string; w: number; h: number }, img: HTMLImageElement, expanded: boolean) {
   const R = r.w / r.h, was = img.naturalWidth / img.naturalHeight
   const grow = expanded ? Math.max(1, R / was) : 1 // wider: the height stays; taller: the width stays
   const box = expanded ? { W: grow, w: 1 } : null

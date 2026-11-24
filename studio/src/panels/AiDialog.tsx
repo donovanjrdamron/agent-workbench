@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { expandBox, loadImage, MODELS, RATIOS, runTool, urlOf, useAi } from '../ai'
 import { startExpand } from '../canvas/Expand'
 import { startCrop } from '../canvas/Crop'
+import { copyImage, openGrade } from '../grade'
 
 const TITLE = { edit: 'Edit with AI', expand: 'Expand', erase: 'Erase' }
 const MAX = { w: 560, h: 420 } // the picture is shown at most this big
@@ -129,12 +130,14 @@ export function AiButtons({ target, compact }: { target: Parameters<typeof runTo
   const b = (label: string, title: string, fn: () => void) => <button key={label} title={title} onClick={(e) => { e.stopPropagation(); fn() }}>{label}</button>
   return (
     <div className={`ai-buttons${compact ? ' compact' : ''}`} {...stop}>
+      {b('Grade', 'Brand grade: your brand preset, adjustable, shown live; the copy has no metadata', () => openGrade(target))}
       {b('Crop', 'Crop the picture (or double-click it)', () => startCrop(target))}
       {b('Remove BG', 'Cut out the subject (on this Mac, free)', () => runTool('removebg', target))}
       {b('Edit…', 'Change it by describing what you want (Higgsfield)', () => useAi.setState({ open: { tool: 'edit', target } }))}
       {b('Expand', 'Drag the edges out to the size you want; only the new area is generated (Higgsfield)', () => startExpand(target))}
       {b('Erase…', 'Brush over something to remove it (Higgsfield)', () => useAi.setState({ open: { tool: 'erase', target } }))}
       {b('Upscale', 'Sharpen and enlarge to 4K (Higgsfield)', () => runTool('upscale', target))}
+      {b('Copy', 'Copy the picture, to paste anywhere (⌘C)', () => copyImage(target))}
     </div>
   )
 }

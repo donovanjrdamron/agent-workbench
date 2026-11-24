@@ -6,6 +6,7 @@ import { Left } from './panels/Left'
 import { Props } from './panels/Props'
 import { Toolbar } from './panels/Toolbar'
 import { AiDialog } from './panels/AiDialog'
+import { GradePanel } from './panels/GradePanel'
 import { ContextMenu } from './canvas/ContextMenu'
 import { AgentPanel } from './panels/Agent'
 import { get, set, useStore } from './store'
@@ -97,6 +98,7 @@ function Desk() {
         <Toolbar />
         {board && <AgentPanel />}
         <AiDialog />
+        <GradePanel />
         <ContextMenu />
         {board && !connected && <div className="offline">Studio is not answering. Nothing you change is saved until it is back.</div>}
         {toastMsg && <div className="toast">{toastMsg}</div>}
