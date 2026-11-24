@@ -10,7 +10,7 @@ A local setup for running lots of Claude Code sessions at once without losing tr
 - **Search Done:** a search bar on the Done column. It finds titles, notes, links, steps, Studio boards and what you asked each session, and it tolerates typos.
 - **Live sessions on every card:**
   - Each Claude session on a card shows its chat, with a shimmering "Thinking" line while it works. Grey means offline.
-  - You can send it messages and `/commands` (with suggestions as you type), attach files, stop it, or rename it with a double-click.
+  - You can send it messages and `/commands` (with suggestions as you type), attach files, stop it, rename it with a double-click, or change its permission mode (Shift+Tab or the mode pill, as in the terminal).
   - Click an offline session to turn it back on.
   - **⑂ Fork** splits a session: a new one in Orca with its whole conversation (`claude --resume <id> --fork-session`), told what to do next, and it joins the same task.
   - When a session leaves commands running in the background, the chat says so; click it to see each one's latest output.

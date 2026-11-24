@@ -289,6 +289,10 @@ button.ag-think{border:0;font:inherit;font-size:13.5px;cursor:pointer;text-align
 .ag-tools{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
 .ag-clip{color:var(--faint);padding:4px;margin-left:-4px;border-radius:6px;display:flex}
 .ag-clip:hover{color:var(--muted);background:var(--hover)}
+.ag-tl{display:flex;align-items:center;gap:4px;min-width:0}
+.ag-mode{font-size:12px;color:var(--muted);padding:3px 7px;border-radius:6px;white-space:nowrap}
+.ag-mode:hover{background:var(--hover);color:var(--text)}
+.ag-mode[data-m="plan"]{color:#0f7b6c} .ag-mode[data-m="bypass"]{color:#c4554d} .ag-mode[data-m="accept"],.ag-mode[data-m="auto"]{color:#9065b0}
 .ag-go{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--text);color:var(--bg);transition:opacity .15s}
 .ag-go:disabled{background:var(--line);color:var(--faint);cursor:default}
 .ag.dropping{outline:2px dashed var(--accent);outline-offset:-2px}
@@ -1329,6 +1333,22 @@ async function mountAgent(c){
       : `<div class="bg-t bg-none">They were started outside this conversation's record, so there are no details to show.</div>`;
     const el = box.querySelector(".ag-bgbox"); if(el){ el.innerHTML = bgHtml; el.querySelectorAll("pre").forEach(p => p.scrollTop = p.scrollHeight); }
   };
+  // the permission mode Claude shows under its prompt; Shift+Tab (or the pill) changes it, as in the terminal
+  let mode = "", modeOf = "";
+  const MODE_NAME = {"bypass permissions": "Bypass permissions", "auto mode": "Auto mode", "manual mode": "Manual", "accept edits": "Accept edits", "plan mode": "Plan mode"};
+  const paintMode = () => {
+    const b = box.querySelector(".ag-mode"); if(!b) return;
+    b.textContent = mode ? (/^(plan|manual)/.test(mode) ? "⏸ " : "⏵⏵ ") + (MODE_NAME[mode] || mode[0].toUpperCase() + mode.slice(1)) : "";
+    b.dataset.m = mode.split(" ")[0]; b.style.display = mode ? "" : "none";
+  };
+  const modeCall = async cycle => {
+    if(!d || !d.canSend) return;
+    const pid = d.pid;
+    const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/mode?pid=${encodeURIComponent(pid)}${cycle ? "" : "&peek=1"}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"}).then(r => r.json()).catch(() => ({}));
+    if(d?.pid !== pid) return;
+    if(r.error && cycle) alert(r.error);
+    if(typeof r.mode === "string"){ mode = r.mode; modeOf = pid; paintMode(); }
+  };
   let sent = [], sentAt = 0;   // messages you just sent, shown at once until the session's own record has them
   // working, or you just sent something it hasn't answered yet: show Thinking (and Stop) straight away
   const busy = () => d && (d.state === "working" || (d.state !== "ended" && (sent.length || (Date.now() - sentAt < 30000 && d.messages.at(-1)?.role === "you"))));
@@ -1439,7 +1459,7 @@ async function mountAgent(c){
         <div class="ag-grow" title="Drag to make the chat taller or shorter (double-click resets)"></div>
         <div class="ag-off"><span>This session is offline.</span><button class="ag-on" type="button">Turn on</button></div>
         <form class="ag-send"><textarea rows="1" placeholder="Write a message…  (/commands work too)"></textarea>
-          <div class="ag-tools"><button class="ag-clip" type="button" title="Attach files (their path goes in the message)">${CLIP}</button>
+          <div class="ag-tools"><div class="ag-tl"><button class="ag-clip" type="button" title="Attach files (their path goes in the message)">${CLIP}</button><button class="ag-mode" type="button" title="Permission mode. Click or press Shift+Tab to change it" style="display:none"></button></div>
           <button class="ag-go" type="submit" title="Send" disabled>${UP}</button></div>
           <input type="file" multiple hidden></form>
       </div>`;
@@ -1469,6 +1489,7 @@ async function mountAgent(c){
       ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; paintGo(); suggest(); };
       ta.onblur = () => setTimeout(closeCmds, 150);
       ta.onkeydown = e => {
+        if(e.key === "Tab" && e.shiftKey && !hits.length){ e.preventDefault(); modeCall(true); return; }
         if(hits.length){
           if(e.key === "ArrowDown" || e.key === "ArrowUp"){ e.preventDefault(); at = (at + (e.key === "ArrowDown" ? 1 : hits.length - 1)) % hits.length; drawCmds(); return; }
           if((e.key === "Enter" || e.key === "Tab") && !e.isComposing){ e.preventDefault(); pickCmd(hits[at].name); return; }
@@ -1478,6 +1499,7 @@ async function mountAgent(c){
       };
       const drops = attachDrops(box.querySelector(".ag"), ta);
       f.querySelector(".ag-clip").onclick = () => file.click();
+      f.querySelector(".ag-mode").onclick = () => { modeCall(true); ta.focus(); };
       file.onchange = () => { if(file.files.length) drops([...file.files]); file.value = ""; };
       box.querySelector(".ag-on").onclick = () => resume();
       f.onsubmit = async e => {
@@ -1572,6 +1594,8 @@ async function mountAgent(c){
     };
     paint();
     drawMsgs(fresh);
+    if(modeOf !== d.pid){ mode = ""; modeOf = d.pid; }
+    paintMode(); modeCall(false);   // whenever the chat changes: plan mode ends itself, for one
   };
   await load();
   agentTimer = setInterval(load, 3000);

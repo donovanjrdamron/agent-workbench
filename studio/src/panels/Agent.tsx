@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { renderMd } from '../md'
 import { toast, useStore } from '../store'
 import { wb, wbBase } from '../workboard'
+const MODE_NAME: Record<string, string> = { 'bypass permissions': 'Bypass permissions', 'auto mode': 'Auto mode', 'manual mode': 'Manual', 'accept edits': 'Accept edits', 'plan mode': 'Plan mode' }
 
 type State = 'working' | 'waiting' | 'ended' | 'starting'
 type Session = { cid: string; card: string; done: boolean; pid: string; state: State; title: string; linked: number; resumable?: boolean }
@@ -150,6 +151,18 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
     const t = setInterval(tick, open ? 3000 : 8000)
     return () => { off = true; clearInterval(t) }
   }, [cur?.cid, cur?.pid, open])
+  // the permission mode Claude shows under its prompt; Shift+Tab (or the pill) changes it, as in the terminal
+  const [mode, setMode] = useState('')
+  const modeCall = async (cycle: boolean) => {
+    if (!cur || !agent?.canSend) return
+    const k = `${cur.cid}:${cur.pid}`
+    const r = await fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/mode?pid=${encodeURIComponent(cur.pid)}${cycle ? '' : '&peek=1'}`, { method: 'POST', body: '{}' }).then((r) => r.json()).catch(() => ({}))
+    if (k !== `${cur.cid}:${cur.pid}`) return
+    if (r.error && cycle) alert(r.error)
+    if (typeof r.mode === 'string') setMode(r.mode)
+  }
+  useEffect(() => { setMode('') }, [cur?.cid, cur?.pid])
+  useEffect(() => { if (open) modeCall(false) }, [cur?.cid, cur?.pid, open, agent?.canSend, agent?.messages?.length, agent?.state])   // plan mode ends itself, for one
   useEffect(() => {
     const el = list.current
     if (!el || !agent?.messages) return
@@ -354,6 +367,7 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
             onBlur={() => setTimeout(() => setHits([]), 150)}
             onPaste={(e) => { const fs = [...e.clipboardData.files]; if (fs.length) { e.preventDefault(); e.stopPropagation(); attach(fs) } }}
             onKeyDown={(e) => {
+              if (e.key === 'Tab' && e.shiftKey && !hits.length) { e.preventDefault(); modeCall(true); return }
               if (hits.length) {
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setAt((a) => (a + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length); return }
                 if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) { e.preventDefault(); pickCmd(hits[at].name); return }
@@ -375,6 +389,11 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
             <button type="button" className="ag-clip" title="Attach files (their path goes in the message)" onClick={() => file.current?.click()}>
               <svg viewBox="0 0 16 16" width="16" height="16"><path d="M10.5 4.5l-5 5a1.4 1.4 0 0 0 2 2l5.2-5.2a2.8 2.8 0 0 0-4-4L3.5 7.5a4.2 4.2 0 0 0 6 6l4-4" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
+            {mode && (
+              <button type="button" className="ag-mode" data-m={mode.split(' ')[0]} title="Permission mode. Click or press Shift+Tab to change it" onClick={() => { modeCall(true); area.current?.focus() }}>
+                {/^(plan|manual)/.test(mode) ? '⏸ ' : '⏵⏵ '}{MODE_NAME[mode] || mode[0].toUpperCase() + mode.slice(1)}
+              </button>
+            )}
             {fresh.length > 0 && (
               <div className="ag-cmw" ref={cmRef}>
                 <button type="button" className={`ag-cm${cmMenu ? ' on' : ''}`} onClick={() => (live.length > 1 ? setCmMenu((m) => !m) : sendComments(cur))} disabled={busy}

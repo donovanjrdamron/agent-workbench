@@ -482,6 +482,29 @@ def orca_err(r):
     e = str(e or "Orca didn't answer")
     return {"terminal_handle_stale": "Orca lost track of this session's terminal. Click it in Orca once (or send from there), then try again."}.get(e, e)
 
+MODE_RE = re.compile(r"(?:⏵⏵|⏸)\s*([a-z][a-z ]*?) on\b")
+def screen_mode(term):
+    """The permission mode Claude shows under its prompt ("bypass permissions", "plan mode", ...), read off the terminal."""
+    r = orca("terminal", "read", "--terminal", term, "--limit", "8", "--json")
+    tail = ((r.get("result") or {}).get("terminal") or {}).get("tail") or []
+    for line in reversed(tail[-6:]):
+        m = MODE_RE.search(line)
+        if m: return m.group(1).strip()
+    return ""
+
+def cycle_mode(term, to=None):
+    """Shift+Tab, as in the terminal. With `to`, keep going until Claude shows that mode (or it has gone round once)."""
+    mode = screen_mode(term)
+    for _ in range(6 if to else 1):
+        if to and mode == to: break
+        r = orca("terminal", "send", "--terminal", term, "--text", "\u001b[Z")
+        if not r.get("ok"): return None, orca_err(r)
+        for _ in range(8):
+            time.sleep(0.15); now = screen_mode(term)
+            if now and now != mode: break
+        mode = now
+    return mode, None
+
 def live_term(st):
     """The session's terminal as Orca knows it now. Orca sometimes issues new handles (after it reloads), and the one the
     session started with goes stale; its tab and pane stay the same, so look it up by those."""
@@ -935,6 +958,19 @@ class H(BaseHTTPRequestHandler):
                 r = orca("terminal", "create", "--title", title, "--command", f"cd {shlex.quote(cwd)} && claude --resume {shlex.quote(st['sid'])}")
             err = r.get("error"); err = err.get("message") if isinstance(err, dict) else err
             return self.send(200 if r.get("ok") else 502, json.dumps({"ok": bool(r.get("ok")), "error": f"Orca couldn't open it: {err}" if not r.get("ok") else None}))
+        m = re.match(r"^/api/agent/([^/]+)/mode$", self.path.split("?")[0])
+        if m:   # Shift+Tab from the chat: {"to": "plan mode"} goes straight to a mode, {} cycles once. Answers with the mode Claude shows now.
+            c = card_info(unquote(m.group(1))); rows = card_sessions(c) if c else []
+            row = next((r for r in rows if r["pid"] == self.query("pid")), None)
+            st = row["st"] if row else None
+            if not st or st["state"] == "ended": return self.send(409, json.dumps({"error": "That Claude session isn't running anymore."}))
+            term = live_term(st)
+            if not term: return self.send(409, json.dumps({"error": "This session wasn't started inside Orca."}))
+            try: to = str(json.loads(self.body() or "{}").get("to") or "")[:40] or None
+            except Exception: to = None
+            if self.query("peek"): return self.send(200, json.dumps({"mode": screen_mode(term)}))
+            with SEND_LOCK: mode, err = cycle_mode(term, to)
+            return self.send(502 if err else 200, json.dumps({"mode": mode, "error": err}))
         m = re.match(r"^/api/agent/([^/]+)/(send|open)$", self.path.split("?")[0])   # (?pid= picks the session)
         if m:
             cid, action = unquote(m.group(1)), m.group(2)
