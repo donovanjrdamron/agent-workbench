@@ -160,6 +160,18 @@ def reverse_lines(path, chunk=4_000_000, max_bytes=200_000_000):
                 if ln.strip(): yield ln
         if pos == 0 and buf.strip(): yield buf
 
+SYSTEM_TAGS = ("task-notification", "system-reminder", "command-name", "command-message", "command-args", "local-command-stdout",
+               "local-command-stderr", "local-command-caveat", "bash-input", "bash-stdout", "bash-stderr", "user-prompt-submit-hook")
+def user_text(text):
+    """What you typed, as you would read it: pasted text unwrapped, Claude Code's own notes (task notifications, reminders,
+    slash-command echoes) left out. None when the whole message is one of those notes."""
+    t = (text or "").strip()
+    if not t or t.startswith(("Caveat:", "[Request interrupted", "This session is being continued from a previous conversation")): return None
+    t = re.sub(r"<(%s)\b[^>]*>.*?</\1>" % "|".join(SYSTEM_TAGS), "", t, flags=re.S).strip()
+    t = re.sub(r"</?pasted_content\b[^>]*>\n?", "", t).strip()   # (the closing tag is missing when you typed after the paste)
+    if not t or re.match(r"<(%s)\b" % "|".join(SYSTEM_TAGS), t): return None
+    return t
+
 def transcript_info(path, limit=14):
     """Clean conversation (your messages + Claude's replies) and the session title, newest last."""
     rev, title, custom = [], "", ""
@@ -188,7 +200,8 @@ def transcript_info(path, limit=14):
         elif isinstance(c, list): text = "\n".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
         else: text = ""
         text = text.strip()
-        if not text or text.startswith("<") or text.startswith("Caveat:") or text.startswith("[Request interrupted") or text.startswith("This session is being continued from a previous conversation"): continue
+        if t == "user": text = user_text(text) or ""
+        if not text: continue
         role = "you" if t == "user" else "claude"
         if rev and rev[-1]["role"] == role == "claude": rev[-1]["text"] = text + "\n\n" + rev[-1]["text"]
         else: rev.append({"role": role, "text": text[:30000]})
@@ -237,8 +250,8 @@ def turn_activity(path):
         c = (d.get("message") or {}).get("content")
         if d.get("type") == "user":
             text = c if isinstance(c, str) else " ".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text") if isinstance(c, list) else ""
-            text = text.strip()
-            if text and not d.get("isMeta") and not text.startswith(("<", "Caveat:", "[Request interrupted", "This session is being continued")):   # your message: the turn starts here
+            text = user_text(text)
+            if text and not d.get("isMeta"):   # your message: the turn starts here
                 since = d.get("timestamp"); break
             continue
         for b in reversed(c if isinstance(c, list) else []):
@@ -317,8 +330,8 @@ def first_prompt(path):
                 except Exception: continue
                 c = m.get("content")
                 t = c if isinstance(c, str) else " ".join(x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text") if isinstance(c, list) else ""
-                t = re.sub(r"<[^>]+>[^<]*</[^>]+>", " ", t).strip()   # skip command/system wrappers
-                if t and not t.startswith(("Caveat:", "[Request interrupted")): text = re.sub(r"\s+", " ", t)[:300]; break
+                t = user_text(t)
+                if t: text = re.sub(r"\s+", " ", t)[:300]; break
     except OSError: pass
     _firsts[path] = text
     return text
