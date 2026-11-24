@@ -186,6 +186,62 @@ def transcript_info(path, limit=14):
         else: rev.append({"role": role, "text": text[:30000]})
     return list(reversed(rev)), custom or title
 
+def _short(v, n=70):
+    v = " ".join(str(v or "").split())
+    return v if len(v) <= n else v[:n - 1] + "…"
+def step_label(name, inp):
+    """One tool call as a few plain words: what the agent is doing."""
+    inp = inp if isinstance(inp, dict) else {}
+    base = lambda p: os.path.basename(str(p or "").rstrip("/")) or str(p or "")
+    if name == "Bash": return _short(inp.get("description")) if inp.get("description") else "Running " + _short(inp.get("command"), 60)
+    if name == "Read": return "Reading " + base(inp.get("file_path"))
+    if name in ("Edit", "MultiEdit"): return "Editing " + base(inp.get("file_path"))
+    if name == "Write": return "Writing " + base(inp.get("file_path"))
+    if name == "NotebookEdit": return "Editing " + base(inp.get("notebook_path"))
+    if name in ("Grep", "Glob"): return "Searching for " + _short(inp.get("pattern"), 50)
+    if name == "WebSearch": return "Searching the web: " + _short(inp.get("query"), 60)
+    if name == "WebFetch":
+        from urllib.parse import urlparse
+        return "Reading " + (urlparse(str(inp.get("url") or "")).netloc or "a web page")
+    if name in ("Agent", "Task"): return "Agent: " + _short(inp.get("description") or inp.get("prompt"), 60)
+    if name == "TodoWrite": return "Updating its plan"
+    if name == "Skill": return "Using the " + str(inp.get("skill") or "") + " skill"
+    if name.startswith("mcp__"):
+        parts = name.split("__")
+        return "Using " + parts[1].replace("claude_ai_", "").replace("_", " ") + (": " + parts[2].replace("_", " ").replace("-", " ") if len(parts) > 2 else "")
+    return name
+
+_acts = {}
+def turn_activity(path):
+    """What the session has done since your last message: its steps (newest last) and when the turn began."""
+    try: st = os.stat(path); key = (st.st_size, st.st_mtime_ns)
+    except OSError: return None
+    hit = _acts.get(path)
+    if hit and hit[0] == key: return hit[1]
+    steps, since = [], None
+    for raw in reverse_lines(path):
+        if len(raw) > 3_000_000: continue
+        ends = raw[:2000] + raw[-4000:]
+        if b'"type":"user"' not in ends and b'"type":"assistant"' not in ends: continue
+        try: d = json.loads(raw)
+        except Exception: continue
+        if d.get("isSidechain"): continue
+        c = (d.get("message") or {}).get("content")
+        if d.get("type") == "user":
+            text = c if isinstance(c, str) else " ".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text") if isinstance(c, list) else ""
+            text = text.strip()
+            if text and not d.get("isMeta") and not text.startswith(("<", "Caveat:", "[Request interrupted", "This session is being continued")):   # your message: the turn starts here
+                since = d.get("timestamp"); break
+            continue
+        for b in reversed(c if isinstance(c, list) else []):
+            if not isinstance(b, dict): continue
+            if b.get("type") == "tool_use": steps.append({"label": step_label(b.get("name") or "", b.get("input")), "ts": d.get("timestamp")})
+            elif b.get("type") == "thinking" and not steps: steps.append({"label": "Thinking", "ts": d.get("timestamp")})
+        if len(steps) >= 40: break
+    out = {"since": since, "steps": list(reversed(steps))[-40:]}
+    _acts[path] = (key, out)
+    return out
+
 def card_agents(card):
     """Every session that has worked on this card (card start/new links one each time), oldest first."""
     out, seen = [], set()
@@ -525,7 +581,8 @@ class H(BaseHTTPRequestHandler):
             row = next((r for r in rows if r["pid"] == want), rows[0])
             st = row["st"]
             msgs, title = transcript_info(st["transcript"]) if st["transcript"] else ([], "")
-            return self.send(200, json.dumps({"linked": True, "pid": row["pid"], "state": st["state"], "title": title, "messages": msgs,
+            act = turn_activity(st["transcript"]) if st["transcript"] and st["state"] == "working" else None
+            return self.send(200, json.dumps({"linked": True, "pid": row["pid"], "state": st["state"], "title": title, "messages": msgs, "activity": act,
                                               "canSend": st["state"] != "ended" and bool(st["rec"].get("terminal") or st["agent"].get("terminal")),
                                               "resumable": row["resumable"],
                                               "sessions": [{k: r[k] for k in ("pid", "state", "title", "linked", "resumable")} for r in rows]}))

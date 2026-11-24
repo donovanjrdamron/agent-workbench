@@ -9,7 +9,32 @@ import { wb, wbBase } from '../workboard'
 type State = 'working' | 'waiting' | 'ended' | 'starting'
 type Session = { cid: string; card: string; done: boolean; pid: string; state: State; title: string; linked: number; resumable?: boolean }
 type Cmd = { name: string; description: string; source: string }
-type Agent = { linked: boolean; pid?: string; state?: State; title?: string; messages?: { role: 'you' | 'claude'; text: string }[]; canSend?: boolean; resumable?: boolean }
+type Activity = { since: string | null; steps: { label: string; ts?: string }[] }
+type Agent = { linked: boolean; pid?: string; state?: State; title?: string; messages?: { role: 'you' | 'claude'; text: string }[]; canSend?: boolean; resumable?: boolean; activity?: Activity | null }
+const dur = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s` }
+
+/** What the session is doing right now, under the chat (as in Claude and ChatGPT): the current step, how long, its steps, Stop. */
+function ActivityRow({ act, onStop }: { act?: Activity | null; onStop: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [, tick] = useState(0)
+  const steps = act?.steps || []
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t) }, [])
+  useEffect(() => { if (open && box.current) box.current.scrollTop = box.current.scrollHeight }, [open, steps.length])
+  const since = act?.since ? Date.parse(act.since) : null
+  return (
+    <div className={`ag-act${open ? ' open' : ''}`}>
+      <div className="row1" onClick={() => setOpen((o) => !o)}>
+        <Spinner />
+        <span className="now">{steps.length ? `${steps[steps.length - 1].label}…` : 'Thinking…'}</span>
+        {since && <span className="time">{dur(Date.now() - since)}</span>}
+        <svg className="chev" viewBox="0 0 16 16" width="12" height="12"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <button type="button" className="stopb" title="Stop (Esc)" onClick={(e) => { e.stopPropagation(); onStop() }}>Stop</button>
+      </div>
+      {open && <div className="steps" ref={box}>{(steps.length ? steps : [{ label: 'Thinking' }]).map((x, i) => <div key={i} className="st"><span>{x.label}</span></div>)}</div>}
+    </div>
+  )
+}
 
 let WB = 'http://127.0.0.1:4477'
 wbBase().then((b) => { WB = b })
@@ -267,8 +292,8 @@ export function AgentPanel() {
         ) : (
         <button className={`ag-pick${menu ? ' on' : ''}`} onClick={() => live.length > 1 && setMenu((m) => !m)} onDoubleClick={() => { setMenu(false); setRenaming(agent.title || '') }}
           title={`${live.length > 1 ? `${live.length} sessions on this board. ` : ''}Double-click to rename`}>
-          <Status s={state} />
-          <span className="ag-name">{name({ title: agent.title || cur.title, card: cur.card })}{state !== 'working' && <i> · {stText(state)}</i>}</span>
+          {(state === 'ended' || state === 'starting') && <Status s={state} />}
+          <span className="ag-name">{name({ title: agent.title || cur.title, card: cur.card })}{(state === 'ended' || state === 'starting') && <i> · {stText(state)}</i>}</span>
           {live.length > 1 && <svg className="ag-chev" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
         </button>
         )}
@@ -291,6 +316,7 @@ export function AgentPanel() {
         {shown.length ? shown.map((m, i) => <div key={i} className={`ag-m ${m.role}${m.pending ? ' pending' : ''}`} dangerouslySetInnerHTML={{ __html: renderMd(m.text) }} />)
           : <div className="ag-m empty">No messages yet</div>}
       </div>
+      {state === 'working' && <ActivityRow act={agent.activity} onStop={() => fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/send?pid=${encodeURIComponent(cur.pid)}`, { method: 'POST', body: JSON.stringify({ text: '\u001b' }) }).catch(() => {})} />}
       {(state === 'ended' || state === 'starting') && (
         <div className="ag-off">
           <span>{state === 'starting' ? 'Turning it on in Orca…' : agent.resumable ? 'This session is offline.' : "This session is offline and can't be resumed."}</span>
