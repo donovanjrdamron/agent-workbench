@@ -111,6 +111,15 @@ def remember_folder(brand, folder):
     except Exception: saved = {}
     saved[brand] = folder
     tmp = PROJECTS + ".tmp"; json.dump(saved, open(tmp, "w"), indent=1); os.replace(tmp, PROJECTS)
+MODELS = [("fable", "Fable"), ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")]
+def default_model():
+    try: return str(json.load(open(os.path.expanduser("~/.claude/settings.json"))).get("model") or "")
+    except Exception: return ""
+def model_flag(m):
+    """--model for a new session, or nothing for your default. Only plain model names get through."""
+    m = str(m or "").strip()
+    return f" --model {m}" if m and re.fullmatch(r"[A-Za-z0-9.\-\[\]]{1,60}", m) else ""
+
 def start_prompt(c):
     """The first message for a new session: the task, its notes and open steps."""
     out = [c.get("title") or ""]
@@ -805,7 +814,7 @@ class H(BaseHTTPRequestHandler):
             c = card_info(unquote(m.group(1)))
             if not c: return self.send(404, json.dumps({"error": "No such card."}))
             folders, pick = project_folders(c.get("brand"))
-            return self.send(200, json.dumps({"folders": folders, "folder": pick, "prompt": start_prompt(c)}))
+            return self.send(200, json.dumps({"folders": folders, "folder": pick, "prompt": start_prompt(c), "models": [{"id": k, "label": v} for k, v in MODELS], "default_model": default_model()}))
         m = re.match(r"^/api/agent/([^/]+)/commands$", p)
         if m:   # what "/" can complete to in this session's chat box: built-ins, skills, plugins, the project's own
             c = card_info(unquote(m.group(1))); rows = card_sessions(c) if c else []
@@ -961,7 +970,7 @@ class H(BaseHTTPRequestHandler):
             first = f"{text}\n\n(This is work board card {cid}. Run `~/.claude/scripts/board/card start {cid}` first.)"
             import shlex
             title = (c.get("title") or "Claude")[:40]
-            cmd = f"claude {shlex.quote(first)}"
+            cmd = f"claude{model_flag(d.get('model'))} {shlex.quote(first)}"
             r = orca("terminal", "create", "--worktree", f"path:{cwd}", "--title", title, "--command", cmd)
             if not r.get("ok"):   # not one of Orca's folders: open it in the current one and step into the folder
                 r = orca("terminal", "create", "--title", title, "--command", f"cd {shlex.quote(cwd)} && {cmd}")
@@ -993,7 +1002,7 @@ class H(BaseHTTPRequestHandler):
             text = " ".join(str(d.get("text") or "").split())[:4000]
             cwd = st["agent"].get("cwd") or st["rec"].get("cwd") or transcript_cwd(st["transcript"]) or os.path.expanduser("~")
             import shlex
-            cmd = f"claude --resume {shlex.quote(st['sid'])} --fork-session" + (f" {shlex.quote(text)}" if text else "")
+            cmd = f"claude --resume {shlex.quote(st['sid'])} --fork-session{model_flag(d.get('model'))}" + (f" {shlex.quote(text)}" if text else "")
             title = ("⑂ " + (row["title"] or c.get("title") or "Claude"))[:40]
             r = orca("terminal", "create", "--worktree", f"path:{cwd}", "--title", title, "--command", cmd)
             if not r.get("ok"): r = orca("terminal", "create", "--title", title, "--command", f"cd {shlex.quote(cwd)} && {cmd}")

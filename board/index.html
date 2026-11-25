@@ -241,6 +241,7 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .ag-start select{flex:1;min-width:0;height:32px;border:1px solid var(--line);border-radius:8px;padding:0 32px 0 10px;font:inherit;font-size:12.5px;color:var(--text);cursor:pointer;
   -webkit-appearance:none;appearance:none;background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 11px center/12px 12px}
 .ag-start select:hover{border-color:var(--muted)}
+.ag-start select.smodel{flex:0 0 auto;width:auto}
 .ag-start .go{background:var(--text);color:var(--bg);border-radius:8px;height:32px;padding:0 16px;font-weight:600;font-size:13px;flex-shrink:0}
 .ag-start .go:disabled{opacity:.5}
 .ag-start .cancel{color:var(--muted);font-size:12.5px;padding:6px 8px;border-radius:8px}
@@ -1457,6 +1458,14 @@ async function mountAgent(c){
   applyH();
   // Start agent: a new Orca tab running Claude in the project folder, with this task as its first message
   let starter = false, launched = 0;
+  // which model a new session runs on: your default, or one picked here (remembered for next time)
+  const modelSelect = info => {
+    let last = ""; try{ last = localStorage.getItem("startModel") || ""; }catch(e){}
+    const def = (info.models || []).find(m => m.id === info.default_model);
+    return `<select class="smodel" title="The model the new session runs on">
+      <option value="">${def ? `${esc(def.label)} (default)` : "Default model"}</option>
+      ${(info.models || []).filter(m => m.id !== info.default_model).map(m => `<option value="${esc(m.id)}" ${m.id === last ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select>`;
+  };
   const showStarter = async (extra) => {
     if(launched && Date.now() - launched < 90000){   // waiting for the new session to check in
       if(!box.querySelector(".ag-start .wait")) box.innerHTML = `<div class="ag-start"><div class="wait">${SPIN} Starting Claude in Orca… it shows here as soon as it begins.</div></div>`;
@@ -1470,9 +1479,10 @@ async function mountAgent(c){
     const el = document.createElement("div"); el.className = "ag-start";
     el.innerHTML = `<div class="hd">${extra ? "Start another agent" : "Start an agent on this"}<span>⌘↵ to start</span></div>
       <textarea spellcheck="true"></textarea>
-      <div class="srow"><select title="The folder the session works in">${info.folders.map(f => `<option value="${esc(f.path)}" ${f.path === info.folder ? "selected" : ""}>${esc(f.label)}</option>`).join("")}</select>
+      <div class="srow">${modelSelect(info)}<select class="sfold" title="The folder the session works in">${info.folders.map(f => `<option value="${esc(f.path)}" ${f.path === info.folder ? "selected" : ""}>${esc(f.label)}</option>`).join("")}</select>
         ${extra ? `<button class="cancel" type="button">Cancel</button>` : ""}<button class="go" type="button">Start</button></div>`;
-    const ta = el.querySelector("textarea"), go = el.querySelector(".go"), sel = el.querySelector("select");
+    const ta = el.querySelector("textarea"), go = el.querySelector(".go"), sel = el.querySelector(".sfold"), msel = el.querySelector(".smodel");
+    msel.onchange = () => { try{ localStorage.setItem("startModel", msel.value); }catch(e){} };
     ta.value = info.prompt;
     if(extra) box.prepend(el); else box.replaceChildren(el);
     const close = () => { el.remove(); starter = false; agentSig = ""; load(); };
@@ -1483,7 +1493,7 @@ async function mountAgent(c){
     ta.onkeydown = e => { e.stopPropagation(); if(e.key === "Enter" && (e.metaKey || e.ctrlKey)){ e.preventDefault(); go.click(); } if(e.key === "Escape" && extra){ e.preventDefault(); close(); } };
     go.onclick = async () => {
       go.disabled = true; go.textContent = "Starting…";
-      const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/start`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt: ta.value, folder: sel.value})}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
+      const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/start`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt: ta.value, folder: sel.value, model: msel.value})}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
       if(r.error){ alert(r.error); go.disabled = false; go.textContent = "Start"; return; }
       pick = null; try{ localStorage.removeItem(pickKey(c.id)); }catch(e){}
       launched = Date.now(); starter = false; el.remove(); box.innerHTML = ""; agentSig = "";
@@ -1493,14 +1503,17 @@ async function mountAgent(c){
     ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   };
   // Fork: a new session with this one's whole conversation (claude --resume <id> --fork-session), told what to do next
+  let forkInfo = {models: [{id: "fable", label: "Fable"}, {id: "opus", label: "Opus"}, {id: "sonnet", label: "Sonnet"}, {id: "haiku", label: "Haiku"}], default_model: ""};
+  fetch(`/api/agent/${encodeURIComponent(c.id)}/start-info`).then(r => r.json()).then(j => { if(j.models) forkInfo = j; }).catch(() => {});
   const showFork = () => {
     if(!d || box.querySelector(".ag-start")) return;
     starter = true;
     const el = document.createElement("div"); el.className = "ag-start";
     el.innerHTML = `<div class="hd">Fork “${esc(sessName(d))}”<span>⌘↵ to fork</span></div>
       <textarea spellcheck="true" placeholder="What should the fork work on? It starts with everything this session knows. (Optional)"></textarea>
-      <div class="srow"><span class="fork-note">Opens in a new Orca tab, same folder, and joins this task.</span><button class="cancel" type="button">Cancel</button><button class="go" type="button">Fork</button></div>`;
-    const ta = el.querySelector("textarea"), go = el.querySelector(".go");
+      <div class="srow">${modelSelect(forkInfo)}<span class="fork-note">New Orca tab, same folder, joins this task.</span><button class="cancel" type="button">Cancel</button><button class="go" type="button">Fork</button></div>`;
+    const ta = el.querySelector("textarea"), go = el.querySelector(".go"), msel = el.querySelector(".smodel");
+    msel.onchange = () => { try{ localStorage.setItem("startModel", msel.value); }catch(e){} };
     box.prepend(el); ta.focus();
     const close = () => { el.remove(); starter = false; agentSig = ""; load(); };
     el.querySelector(".cancel").onclick = close;
@@ -1508,7 +1521,7 @@ async function mountAgent(c){
     ta.onkeydown = e => { e.stopPropagation(); if(e.key === "Enter" && (e.metaKey || e.ctrlKey)){ e.preventDefault(); go.click(); } if(e.key === "Escape"){ e.preventDefault(); close(); } };
     go.onclick = async () => {
       go.disabled = true; go.textContent = "Forking…";
-      const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/fork?pid=${encodeURIComponent(d.pid)}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: ta.value})}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
+      const r = await fetch(`/api/agent/${encodeURIComponent(c.id)}/fork?pid=${encodeURIComponent(d.pid)}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: ta.value, model: msel.value})}).then(r => r.json()).catch(() => ({error: "The work board is not answering"}));
       if(r.error){ alert(r.error); go.disabled = false; go.textContent = "Fork"; return; }
       el.innerHTML = `<div class="wait">${SPIN} Opening the fork in Orca… it joins this task's sessions as soon as it starts.</div>`;
       setTimeout(close, 6000);

@@ -319,6 +319,7 @@ div.drag-ghost { background: rgba(13,153,255,0.12); }
 .ag-clip:hover { background: var(--bg3); color: var(--text); }
 .ag-mode { border: 0; background: none; font: inherit; font-size: 12px; color: var(--dim); padding: 3px 7px; border-radius: 6px; white-space: nowrap; cursor: pointer; }
 .ag-mode:hover { background: var(--bg3); color: var(--text); }
+.ag-model { height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg2); color: var(--text); font: inherit; font-size: 12px; padding: 0 6px; flex-shrink: 0; }
 .ag-ask { align-self: stretch; display: flex; flex-direction: column; gap: 12px; margin: 2px 0 4px; }
 .ag-q { display: flex; flex-direction: column; gap: 4px; }
 .ag-qh { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }

@@ -47,6 +47,7 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
   const board = useStore((s) => s.board)
   const comments = useStore((s) => s.comments)
   const askGone = useRef<string | null>(null) // a question you just answered (until the session's record catches up)
+  const [forkModel, setForkModel] = useState(() => { try { return localStorage.getItem('startModel') || '' } catch { return '' } })
   const [sentAt, setSentAt] = useState(0) // comments you wrote (or replied to) after this went to the agent are "new"
   useEffect(() => setSentAt(getSent(board)), [board])
   const [sessions, setSessions] = useState<Session[]>([])
@@ -278,7 +279,7 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
   const doFork = async () => {
     if (forking) return
     setForking(true)
-    const r = await fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/fork?pid=${encodeURIComponent(cur.pid)}`, { method: 'POST', body: JSON.stringify({ text: fork || '' }) }).then((r) => r.json()).catch(() => ({ error: 'The work board is not answering' }))
+    const r = await fetch(`${WB}/api/agent/${encodeURIComponent(cur.cid)}/fork?pid=${encodeURIComponent(cur.pid)}`, { method: 'POST', body: JSON.stringify({ text: fork || '', model: forkModel }) }).then((r) => r.json()).catch(() => ({ error: 'The work board is not answering' }))
     setForking(false)
     if (r.error) { alert(r.error); return }
     setFork(null); toast('Opening the fork in Orca. It shows up in this list as soon as it starts.')
@@ -402,7 +403,11 @@ export function AgentPanel({ sheet, onClose }: { sheet?: boolean; onClose?: () =
           <textarea autoFocus rows={3} value={fork} placeholder="What should the fork work on? It starts with everything this session knows. (Optional)"
             onChange={(e) => setFork(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Escape') setFork(null); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) doFork() }} />
-          <div className="ag-fork-r"><span>New Orca tab, same folder; it joins this task.</span><button className="ag-btn" onClick={() => setFork(null)}>Cancel</button><button className="ag-on" disabled={forking} onClick={doFork}>{forking ? 'Forking…' : 'Fork'}</button></div>
+          <div className="ag-fork-r">
+            <select className="ag-model" value={forkModel} title="The model the fork runs on" onChange={(e) => { setForkModel(e.target.value); try { localStorage.setItem('startModel', e.target.value) } catch { /* private window */ } }}>
+              <option value="">Default model</option>{[['fable', 'Fable'], ['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']].map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <span>New Orca tab, same folder; it joins this task.</span><button className="ag-btn" onClick={() => setFork(null)}>Cancel</button><button className="ag-on" disabled={forking} onClick={doFork}>{forking ? 'Forking…' : 'Fork'}</button></div>
         </div>
       )}
       {agent.canSend && (
