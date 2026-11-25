@@ -9,7 +9,7 @@ import { ExpandFrame } from './Expand'
 import { CropFrame, startCrop } from './Crop'
 import { SliceFrame } from './Slices'
 import { openMenu } from './ContextMenu'
-import { addMedia, addSection, addStep, addText, mediaFiles, selectItems } from '../items'
+import { addFiles, addMedia, addSection, addStep, addText, mediaFiles, selectItems } from '../items'
 import { prepareImages } from '../alpha'
 import { REVIEW } from '../mode'
 import { ReviewPins, useReviewGestures } from '../review/Review'
@@ -637,6 +637,9 @@ export function Canvas() {
         if (inAd && pics.length) insertImages(design, pics, p)
         const rest = inAd ? mediaFiles(files).filter((f) => !f.type.startsWith('image/')) : mediaFiles(files)
         if (rest.length) addMedia(rest, p)
+        // everything else (spreadsheets, PDFs, docs...) becomes a file card on the board
+        const other = files.filter((f) => !mediaFiles([f]).length)
+        if (other.length) addFiles(other, rest.length ? { x: p.x, y: p.y + 480 } : p)
       } })}
     >
       <div className="world" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>

@@ -1,7 +1,7 @@
 import { applyGrade, closeGrade, copyImage, useGrade } from './grade'
 import { adoptClip, clipText, copy, copyFrames, duplicateFrames, pasteFrames, selectedFrames, deleteSelection, removeDesigns, style, duplicate, editSelected, finishEditing, fitAll, fitSelection, insertImages, nudge, paste, redo, selectParent, undo, undoStyle, zOrder, zoomTo } from './commands'
 import { get, select, selectFrames, set, toast, type Tool } from './store'
-import { addLink, addMedia, copyItems, duplicateItems, flipItems, hasItemClip, looksLikeUrl, mediaFiles, nudgeItems, pasteItems, removeItems, selectAllItems, selectItems, startEdit, viewCenter } from './items'
+import { addFiles, addLink, addMedia, copyItems, duplicateItems, flipItems, hasItemClip, looksLikeUrl, mediaFiles, nudgeItems, pasteItems, removeItems, selectAllItems, selectItems, startEdit, viewCenter } from './items'
 import { elOf, isPage, piecesOf, sidOf } from './dom'
 import { useAi } from './ai'
 
@@ -113,6 +113,8 @@ export function installKeys() {
     if (typing(e.target) || get().editing) return
     const files = images(e.clipboardData)
     e.preventDefault()
+    const other = [...(e.clipboardData?.files || [])].filter((f) => !mediaFiles([f]).length)
+    if (other.length && !files.length) { addFiles(other, viewCenter()); return } // a spreadsheet, PDF... copied in Finder
     const pasted = e.clipboardData?.getData('text/plain') || ''
     if (hasItemClip(pasted) && !files.length && pasteItems()) return // planning objects copied here
     if (!files.length && looksLikeUrl(pasted) && !get().sel.sids.length) { addLink(pasted); return } // a link pasted onto the board
@@ -132,5 +134,7 @@ export function installKeys() {
     e.preventDefault()
     const files = images(e.dataTransfer)
     if (files.length) toSelected(files) // a near miss still lands the picture
+    const other = [...(e.dataTransfer?.files || [])].filter((f) => !mediaFiles([f]).length)
+    if (other.length) addFiles(other, viewCenter())
   })
 }

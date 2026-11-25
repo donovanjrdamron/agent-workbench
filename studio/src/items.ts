@@ -109,6 +109,38 @@ export async function addMedia(files: File[], at: { x: number; y: number }) {
   }
   if (made.length) { selectItems(made); set({ toast: null }) }
 }
+/** Any other file dropped on the board (a spreadsheet, a PDF, a doc...): a card with its name, size and, for a sheet, its first rows. */
+export const SHEET = /\.(csv|tsv|xlsx|xlsm)$/i
+export async function addFiles(files: File[], at: { x: number; y: number }) {
+  let x = at.x
+  const made: string[] = []
+  for (const f of files) {
+    try {
+      toast(`Adding ${f.name || 'file'}…`)
+      const r = await fetch(`/api/upload?board=${encodeURIComponent(get().board)}&file=1&name=${encodeURIComponent(f.name || 'file')}`, { method: 'POST', body: f })
+      const j = await r.json()
+      if (!r.ok || !j.path) throw new Error(j.error || 'upload failed')
+      let w = 460, h = 112
+      if (SHEET.test(j.path)) { // a sheet's card is as tall as its preview
+        const pv = await fetch(`/api/file-preview?board=${encodeURIComponent(get().board)}&src=${encodeURIComponent(j.path)}`).then((r) => r.json()).catch(() => null)
+        const n = pv?.rows?.length || 0
+        if (n) { w = 640; h = Math.min(520, 120 + n * 35 + 6) }
+      }
+      const it: Item = { id: newId('file'), kind: 'file', x: Math.round(x - w / 2), y: Math.round(at.y - h / 2), w, h, src: j.path, text: f.name, bytes: j.bytes }
+      await itemOp([it])
+      made.push(it.id)
+      x += w + 60
+    } catch (e) { toast(`Could not add ${f.name}: ${(e as Error).message}`) }
+  }
+  if (made.length) { selectItems(made); set({ toast: null }) }
+}
+/** Open a file from the board in its own app (Numbers, Excel, Preview...). On the phone it downloads instead. */
+export async function openFile(src: string) {
+  const enc = src.split('/').map(encodeURIComponent).join('/')
+  const r = await fetch('/api/reveal-file', { method: 'POST', body: JSON.stringify({ board: get().board, src: enc, open: true }) }).catch(() => null)
+  if (!r || !r.ok) window.open(`/b/${encodeURIComponent(get().board)}/${enc}`, '_blank', 'noopener')
+}
+
 function naturalSize(f: File): Promise<{ w: number; h: number }> {
   const url = URL.createObjectURL(f)
   return new Promise((res) => {
@@ -218,7 +250,7 @@ export function pasteItems() {
 /** Shift+H / Shift+V: mirror the selected pictures, videos and boxes. */
 export function flipItems(axis: 'x' | 'y') {
   const s = get()
-  const put = s.isel.map((i) => s.items[i]).filter((i) => i && i.kind !== 'arrow' && i.kind !== 'section').map((i) => axis === 'x' ? { ...i, fx: !i.fx || undefined } : { ...i, fy: !i.fy || undefined })
+  const put = s.isel.map((i) => s.items[i]).filter((i) => i && i.kind !== 'arrow' && i.kind !== 'section' && i.kind !== 'file').map((i) => axis === 'x' ? { ...i, fx: !i.fx || undefined } : { ...i, fy: !i.fy || undefined })
   if (put.length) itemOp(put)
 }
 export function selectAllItems() {

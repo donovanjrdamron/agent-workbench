@@ -5,7 +5,7 @@ import { create } from 'zustand'
 import { runTool, useAi } from '../ai'
 import { addBoardComment, addComment, copy, copyFrames, createFrame, duplicateFrames, pasteFrames, removeDesigns, deleteSelection, duplicate, editSelected, fitAll, fitSelection, focusDesign, paste, removeDesign, revert, selectParent, style, tidy, toggleHidden, zOrder, zoomTo } from '../commands'
 import { designAt, elOf, isPage, isTextLeaf, pick, piecesOf, sidOf } from '../dom'
-import { addNote, addSection, addStep, addText, copyItems, duplicateItems, flipItems, pasteItems, removeItems, selectAllItems, selectItems, startEdit } from '../items'
+import { addNote, addSection, addStep, addText, copyItems, duplicateItems, flipItems, openFile, pasteItems, removeItems, selectAllItems, selectItems, startEdit } from '../items'
 import { exportDesign, itemOp } from '../net'
 import { copyRef, elementRef, frameRef, itemRef } from '../refs'
 import { get, select, set, toast } from '../store'
@@ -118,8 +118,9 @@ function pieceMenu(design: string, els: HTMLElement[], p: { x: number; y: number
 function itemMenu(ids: string[]): Entry[] {
   const s = get()
   const one = ids.length === 1 ? s.items[ids[0]] : null
-  const turnable = ids.map((i) => s.items[i]).filter((i) => i && i.kind !== 'arrow' && i.kind !== 'section')
+  const turnable = ids.map((i) => s.items[i]).filter((i) => i && i.kind !== 'arrow' && i.kind !== 'section' && i.kind !== 'file')
   return [
+    ...(one?.kind === 'file' && one.src ? [{ label: 'Open', run: () => openFile(one.src!) } as Entry, { label: 'Reveal in Finder', run: () => reveal('', one.src!.split('/').map(encodeURIComponent).join('/')) } as Entry, 'sep' as const] : []),
     ...(one && (one.kind === 'image' || one.kind === 'video') && one.src ? [{ label: 'Reveal in Finder', run: () => reveal('', one.src!) } as Entry, ...(one.kind === 'image' ? picEntries({ kind: 'item', id: one.id }) : ['sep' as const])] : []),
     { label: 'Copy', keys: '⌘C', run: () => copyItems() },
     { label: 'Cut', keys: '⌘X', run: () => copyItems(true) },
@@ -131,9 +132,11 @@ function itemMenu(ids: string[]): Entry[] {
     ...(one && (one.kind === 'image' || one.kind === 'video') ? [{ label: 'Add note', run: () => addNote(one.id) } as Entry] : []),
     ...(one && one.kind !== 'arrow' ? [{ label: 'Comment here', keys: 'C', run: () => addBoardComment({ x: one.x + Math.min(one.w, 40), y: one.y + Math.min(one.h, 40) }) } as Entry] : []),
     ...(one?.kind === 'link' && one.url ? [{ label: 'Open link', run: () => window.open(one.url, '_blank', 'noopener') } as Entry] : []),
+    ...(one?.kind === 'file' ? [] : [
     { label: 'Flip horizontal', keys: '⇧H', run: () => flipItems('x'), disabled: !turnable.length },
     { label: 'Flip vertical', keys: '⇧V', run: () => flipItems('y'), disabled: !turnable.length },
     { label: 'Rotate 90°', run: () => itemOp(turnable.map((i) => ({ ...i, rot: ((((i.rot || 0) + 90 + 180) % 360) - 180) || undefined }))), disabled: !turnable.length },
+    ] as Entry[]),
     ...(one?.kind === 'image' ? aiEntries({ kind: 'item', id: one.id }) : []),
     'sep',
     { label: 'Copy link for AI', run: () => copyRef(ids.map(itemRef).filter(Boolean).join('\n')) },

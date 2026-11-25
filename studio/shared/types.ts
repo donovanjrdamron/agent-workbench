@@ -28,7 +28,7 @@ export interface Comment {
 }
 
 /** A planning object on the board, outside any HTML file: steps, notes, sections, media, links and the arrows between them. */
-export type ItemKind = 'box' | 'text' | 'section' | 'image' | 'video' | 'link' | 'arrow'
+export type ItemKind = 'box' | 'text' | 'section' | 'image' | 'video' | 'link' | 'file' | 'arrow'
 export interface Item {
   id: string
   kind: ItemKind
@@ -37,7 +37,8 @@ export interface Item {
   w: number
   h: number
   text?: string // box/text/section title/link label/arrow label
-  src?: string // image/video: path inside the board folder (studio-assets/…)
+  src?: string // image/video/file: path inside the board folder (studio-assets/…)
+  bytes?: number // file: its size
   url?: string // link
   from?: string // arrow: item id or design id
   to?: string

@@ -911,7 +911,7 @@ export async function addBoardComment(pt: { x: number; y: number }) {
   const hit = Object.values(get().items).filter((i) => i.kind !== 'arrow' && pt.x >= i.x && pt.x <= i.x + i.w && pt.y >= i.y && pt.y <= i.y + i.h)
     .sort((a, b) => Number(a.kind === 'section') - Number(b.kind === 'section') || a.w * a.h - b.w * b.h)[0]
   const name = (t?: string) => (t ? ` "${t.replace(/\s+/g, ' ').slice(0, 60)}"` : '')
-  const target = !hit ? 'the board' : `the ${{ box: 'note', text: 'text', section: 'section', image: 'picture', video: 'video', link: 'link', arrow: 'arrow' }[hit.kind]}${name(hit.text)}`
+  const target = !hit ? 'the board' : `the ${{ box: 'note', text: 'text', section: 'section', image: 'picture', video: 'video', link: 'link', file: 'file', arrow: 'arrow' }[hit.kind]}${name(hit.text)}`
   const r = await commentOp({ onBoard: true, add: { x: Math.round(pt.x - (hit?.x || 0)), y: Math.round(pt.y - (hit?.y || 0)), target, author: 'user', ...(hit ? { item: hit.id } : {}) } })
   set({ tool: 'move', openComment: r.id || null })
 }

@@ -600,3 +600,22 @@ button.ag-think { border: 0; font: inherit; cursor: pointer; text-align: left; }
 .bg-h { display: flex; gap: 8px; align-items: baseline; } .bg-h b { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .bg-h span { color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
 .bg-t pre { margin: 6px 0 0; max-height: 150px; overflow: auto; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); white-space: pre-wrap; word-break: break-all; }
 .bg-none { color: var(--faint); }
+
+/* a file dropped on the board: spreadsheet, PDF, doc... */
+.it-file { background: #23262d; color: #e8ebf0; border: 1px solid #383d48; border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+.it-file-head { display: flex; align-items: center; gap: 16px; padding: 20px 20px 18px 22px; min-width: 0; flex: none; }
+.it-file-badge { flex: none; width: 64px; height: 72px; border-radius: 8px; display: grid; place-items: center; font: 700 15px/1 'Inter Variable', Inter, sans-serif; letter-spacing: .04em; color: #fff; background: #5b6270; }
+.it-file-badge.f-sheet { background: #1f7a4d; }
+.it-file-badge.f-pdf { background: #c4362f; }
+.it-file-badge.f-doc { background: #2b62c9; }
+.it-file-badge.f-deck { background: #c8662a; }
+.it-file-badge.f-zip { background: #6b5aa8; }
+.it-file-meta { min-width: 0; flex: 1; }
+.it-file-name { font: 600 24px/1.25 'Inter Variable', Inter, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.it-file-size { font: 400 18px/1.3 'Inter Variable', Inter, sans-serif; color: #98a2b3; margin-top: 4px; }
+.it-file-open { flex: none; width: 40px; height: 40px; border: 0; border-radius: 10px; background: #0d99ff; color: #fff; font-size: 22px; cursor: pointer; }
+.it-file-table { flex: 1; min-height: 0; overflow: hidden; border-top: 1px solid #383d48; background: #1b1d22; }
+.it-file-table table { border-collapse: collapse; font: 400 15px/1.3 'Inter Variable', Inter, sans-serif; font-variant-numeric: tabular-nums; }
+.it-file-table th, .it-file-table td { padding: 7px 12px; border-right: 1px solid #2e323b; border-bottom: 1px solid #2e323b; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.it-file-table th { color: #e8ebf0; font-weight: 600; background: #22252c; }
+.it-file-table td { color: #b8c0cc; }

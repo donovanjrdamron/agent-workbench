@@ -21,8 +21,8 @@ export function itemRef(id: string) {
   const s = get()
   const it = s.items[id]
   if (!it) return ''
-  const what = { box: 'step box', text: 'text', section: 'section', image: 'picture', video: 'video', link: 'link', arrow: 'arrow' }[it.kind]
-  const extra = it.kind === 'image' || it.kind === 'video' ? ` ${s.root}/${it.src}` : it.url ? ` ${it.url}` : ''
+  const what = { box: 'step box', text: 'text', section: 'section', image: 'picture', video: 'video', link: 'link', file: 'file', arrow: 'arrow' }[it.kind]
+  const extra = it.kind === 'image' || it.kind === 'video' || it.kind === 'file' ? ` ${s.root}/${it.src}` : it.url ? ` ${it.url}` : ''
   return `Studio planning ${what}${it.text ? ` "${snippet(it.text)}"` : ''}${extra} (board "${s.board}", item ${id}; see: studio plan "${s.board}")`
 }
 export function copyRef(text: string) {

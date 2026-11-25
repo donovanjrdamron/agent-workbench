@@ -18,6 +18,7 @@ export function planOf(name: string, root: string, b: Board): string {
     if (i.kind === 'text') return `"${clean(i.text)}"`
     if (i.kind === 'image') return `Image: ${path.join(root, i.src || '')}`
     if (i.kind === 'video') return `Video file: ${path.join(root, i.src || '')}`
+    if (i.kind === 'file') return `File: ${path.join(root, i.src || '')}`
     if (i.kind === 'link') return `Link: ${i.url}${clean(i.text) && clean(i.text) !== i.url ? ` (${clean(i.text)})` : ''}`
     return i.kind
   }

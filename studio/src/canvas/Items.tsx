@@ -1,10 +1,10 @@
 // Planning objects on the world plane: sections under everything, then arrows, then boxes, text, media and links.
 // They take their own clicks, so the design canvas underneath never sees a press that was meant for them.
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Item } from '../../shared/types'
 import { designAt } from '../dom'
 import { addBoardComment } from '../commands'
-import { addNext, addNote, boxFor, commitMove, dragGroup, dropIntoDesign, selectItems, startEdit } from '../items'
+import { addNext, addNote, boxFor, commitMove, dragGroup, dropIntoDesign, openFile, selectItems, SHEET, startEdit } from '../items'
 import { itemOp } from '../net'
 import { AiButtons } from '../panels/AiDialog'
 import { useAi } from '../ai'
@@ -23,7 +23,7 @@ const free = () => { const s = get(); return s.tool === 'move' && !s.space }
 type Corner = 'nw' | 'ne' | 'se' | 'sw'
 const CORNERS: Corner[] = ['nw', 'ne', 'se', 'sw']
 const RAD = Math.PI / 180
-const turnable = (it: Item) => it.kind !== 'arrow' && it.kind !== 'section'
+const turnable = (it: Item) => it.kind !== 'arrow' && it.kind !== 'section' && it.kind !== 'file'
 /** Press on an item: select it, and drag it (with what it carries) if the pointer moves. A press on a corner grip
  * resizes it from that corner (the opposite one stays put, also when it is turned); just outside a corner turns it. */
 function press(e: React.PointerEvent, it: Item, opts: { resize?: Corner; rotate?: boolean } = {}) {
@@ -177,6 +177,7 @@ function ItemView({ it, on, edit, seed, board, z }: { it: Item; on: boolean; edi
     if (it.kind === 'box' || it.kind === 'text') startEdit(it.id)
     else if (it.kind === 'link' && it.url) window.open(it.url, '_blank', 'noopener')
     else if (it.kind === 'image') startCrop({ kind: 'item', id: it.id })
+    else if (it.kind === 'file' && it.src) openFile(it.src)
   }
   if (it.kind === 'section') {
     return (
@@ -197,6 +198,7 @@ function ItemView({ it, on, edit, seed, board, z }: { it: Item; on: boolean; edi
         <div className="it-grab" style={{ fontSize: 12 / z, height: 26 / z, top: -28 / z }}>▶ {it.text || 'video'}</div>
         <video src={media} controls={on} preload="metadata" playsInline />
       </>}
+      {it.kind === 'file' && <FileCard it={it} board={board} />}
       {it.kind === 'link' && <>
         <div className="it-link-url">{it.text || it.url}</div>
         <div className="it-link-host">{(() => { try { return new URL(it.url || '').hostname } catch { return it.url } })()}</div>
@@ -204,6 +206,35 @@ function ItemView({ it, on, edit, seed, board, z }: { it: Item; on: boolean; edi
       </>}
     </div>
   )
+}
+
+const fmtSize = (n?: number) => (n == null ? '' : n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(n < 10 * 1024 ** 2 ? 1 : 0)} MB`)
+const FILE_TINT: Record<string, string> = { csv: 'sheet', tsv: 'sheet', xlsx: 'sheet', xlsm: 'sheet', xls: 'sheet', numbers: 'sheet', pdf: 'pdf', doc: 'doc', docx: 'doc', pages: 'doc', txt: 'doc', md: 'doc', ppt: 'deck', pptx: 'deck', key: 'deck', zip: 'zip' }
+type Sheet = { rows: string[][]; total: number; sheet?: string; sheets?: number }
+/** A file on the board: its kind, name and size, and for a spreadsheet the first rows. Double-click opens it in its app. */
+function FileCard({ it, board }: { it: Item; board: string }) {
+  const ext = ((it.src || it.text || '').split('.').pop() || '').toLowerCase()
+  const sheet = SHEET.test(it.src || '')
+  const [pv, setPv] = useState<Sheet | null>(null)
+  useEffect(() => {
+    if (!sheet || !it.src) return
+    let gone = false
+    fetch(`/api/file-preview?board=${encodeURIComponent(board)}&src=${encodeURIComponent(it.src)}`).then((r) => r.json()).then((j) => { if (!gone && Array.isArray(j.rows)) setPv(j) }).catch(() => {})
+    return () => { gone = true }
+  }, [board, it.src, sheet])
+  const facts = [fmtSize(it.bytes), pv?.total ? `${pv.total.toLocaleString()} rows` : '', pv?.sheets && pv.sheets > 1 ? `${pv.sheets} sheets` : ''].filter(Boolean).join(' · ')
+  return <>
+    <div className="it-file-head">
+      <span className={`it-file-badge f-${FILE_TINT[ext] || 'other'}`}>{(ext || 'file').slice(0, 4).toUpperCase()}</span>
+      <div className="it-file-meta"><div className="it-file-name">{it.text || it.src?.split('/').pop()}</div>{facts && <div className="it-file-size">{facts}</div>}</div>
+      <button className="it-file-open" title="Open in its app" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); if (it.src) openFile(it.src) }}>↗</button>
+    </div>
+    {pv && pv.rows.length > 0 && (
+      <div className="it-file-table">
+        <table><tbody>{pv.rows.map((r, i) => <tr key={i}>{r.map((c, j) => i === 0 ? <th key={j}>{c}</th> : <td key={j}>{c}</td>)}</tr>)}</tbody></table>
+      </div>
+    )}
+  </>
 }
 
 /** Controls around one selected item: + on each side of a step box, + Note under media, a resize grip. */

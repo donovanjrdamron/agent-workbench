@@ -21,7 +21,7 @@ A local setup for running lots of Claude Code sessions at once without losing tr
   - Agents learn how to build editable designs when they save one on a board: a hook runs Studio's check and hands them the rules and anything to fix. Sessions that never touch Studio never see it.
   - The side panels open and close (corner buttons, ⌘\ for both).
   - The Claude panel can be dragged anywhere and resized from any edge; ⇥ docks it again.
-  - Plan on the same canvas: step boxes chained with arrows, sections, pictures and videos with notes, and links. `studio plan` turns the plan into text Claude reads before it starts.
+  - Plan on the same canvas: step boxes chained with arrows, sections, pictures and videos with notes, links, and any file you drop (spreadsheets, PDFs, docs; CSV and Excel files show their first rows, Excel needs Python's openpyxl; double-click opens one in its app). `studio plan` turns the plan into text Claude reads before it starts.
   - Pin comments on any element, then press **Send comments to agent** to hand them all to a session in one go. If the board has several sessions, you pick which one.
   - **Slice** an email into pieces and export them for your email tool, or export any design as PNG/JPG.
   - **Brand grade** any picture (right-click, or Grade on the picture's toolbar): pick a preset, adjust strength, contrast, grain, vignette, saturation and shadow/mid/highlight colour, and see it live on the board. Apply saves a full-size copy with no metadata as one undo step. Save your own presets (kept in Studio's state folder). Needs Python with numpy and Pillow.

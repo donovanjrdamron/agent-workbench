@@ -546,7 +546,7 @@ async function exportDesign(rt: Rt, id: string, o: { scale?: number; format?: Fo
 }
 
 // ---------- http ----------
-const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4' }
+const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4', '.pdf': 'application/pdf', '.csv': 'text/csv; charset=utf-8', '.tsv': 'text/tab-separated-values; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xls': 'application/vnd.ms-excel', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation', '.zip': 'application/zip' }
 const IMG = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif'])
 const VID = new Set(['.mp4', '.webm', '.mov', '.m4v'])
 
@@ -772,7 +772,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const target = path.resolve(root, rel)
     if (!rel || !(target === root || target.startsWith(root + path.sep))) throw new HttpError(400, 'not a file on this board')
     if (!fs.existsSync(target)) throw new HttpError(404, `Can't find ${path.basename(target)}`)
-    execFile('/usr/bin/open', ['-R', target])
+    execFile('/usr/bin/open', b.open ? [target] : ['-R', target])
     return json(res, { ok: true, path: target }), true
   }
   // `from`: the design a pasted piece was copied out of, so its links can be made to work from this file
@@ -971,6 +971,17 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
   if (p === '/api/upload' && post) {
     const buf = await readBody(req)
+    if (q.get('file') === '1') {
+      // any other file dropped on the board (a spreadsheet, a PDF, a doc...): kept under its own name so agents can find it
+      const base = path.basename(q.get('name') || 'file').replace(/[\x00-\x1f/\\:]/g, '_').replace(/^\.+/, '').slice(-120) || 'file'
+      const dir = path.join(rt.root, 'studio-assets', 'files')
+      fs.mkdirSync(dir, { recursive: true })
+      const ext = path.extname(base), stem = path.basename(base, ext)
+      let name = base
+      for (let n = 2; fs.existsSync(path.join(dir, name)) && !fs.readFileSync(path.join(dir, name)).equals(buf); n++) name = `${stem} (${n})${ext}`
+      fs.writeFileSync(path.join(dir, name), buf)
+      return json(res, { path: `studio-assets/files/${name}`, bytes: buf.length }), true
+    }
     const ext = (path.extname(q.get('name') || '') || '.png').toLowerCase()
     if (!IMG.has(ext) && !VID.has(ext)) throw new HttpError(415, 'not an image or video')
     const dir = path.join(rt.root, 'studio-assets')
@@ -978,6 +989,13 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const abs = path.join(dir, hash(buf.toString('binary')) + ext)
     fs.writeFileSync(abs, buf)
     return json(res, { src: path.relative(id ? path.dirname(path.join(rt.root, id)) : path.join(rt.root, LOOSE), abs).split(path.sep).join('/'), path: path.relative(rt.root, abs).split(path.sep).join('/') }), true
+  }
+  if (p === '/api/file-preview') {
+    // the first rows of a spreadsheet on the board, for its card
+    const abs = path.resolve(rt.root, String(q.get('src') || ''))
+    if (!abs.startsWith(fs.realpathSync(rt.root) + path.sep) && !abs.startsWith(rt.root + path.sep)) throw new HttpError(400, 'not a file on this board')
+    if (!fs.existsSync(abs)) throw new HttpError(404, 'not found')
+    return json(res, await sheetPreview(abs)), true
   }
   if (p === '/api/grade-presets') {
     // the brand grades you can pick in the Grade panel (saved next to the boards)
@@ -1078,6 +1096,60 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   return false
 }
 
+/** The top-left corner of a spreadsheet (CSV, TSV, Excel), for its card on the board. Cached until the file changes. */
+type Sheet = { rows: string[][]; total: number; sheet?: string; sheets?: number }
+const sheetCache = new Map<string, { key: number; v: Sheet }>()
+const PY_SHEET = `import sys, json, datetime, openpyxl
+wb = openpyxl.load_workbook(sys.argv[1], read_only=True, data_only=True)
+ws = wb.worksheets[0]
+def cell(v):
+    if v is None: return ''
+    if isinstance(v, float) and v.is_integer(): return str(int(v))
+    if isinstance(v, float): return f'{v:.2f}'.rstrip('0').rstrip('.')
+    if isinstance(v, datetime.datetime): return v.strftime('%Y-%m-%d') if not (v.hour or v.minute) else v.strftime('%Y-%m-%d %H:%M')
+    return str(v)
+rows = [[cell(v) for v in r] for r in ws.iter_rows(max_row=12, max_col=10, values_only=True)]
+print(json.dumps({'rows': rows, 'total': ws.max_row or len(rows), 'sheet': ws.title, 'sheets': len(wb.worksheets)}))`
+function parseDelimited(text: string, sep: string, max: number): string[][] {
+  const rows: string[][] = []
+  let row: string[] = [], cur = '', q = false
+  for (let i = 0; i < text.length && rows.length < max; i++) {
+    const ch = text[i]
+    if (q) { if (ch === '"' && text[i + 1] === '"') { cur += '"'; i++ } else if (ch === '"') q = false; else cur += ch; continue }
+    if (ch === '"') q = true
+    else if (ch === sep) { row.push(cur); cur = '' }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = '' }
+    else cur += ch
+  }
+  if ((cur || row.length) && rows.length < max) { row.push(cur); rows.push(row) }
+  return rows
+}
+async function sheetPreview(abs: string): Promise<Sheet> {
+  const ext = path.extname(abs).toLowerCase(), st = fs.statSync(abs)
+  const hit = sheetCache.get(abs)
+  if (hit && hit.key === st.mtimeMs) return hit.v
+  let v: Sheet = { rows: [], total: 0 }
+  if (ext === '.csv' || ext === '.tsv') {
+    const fd = fs.openSync(abs, 'r'), buf = Buffer.alloc(Math.min(st.size, 256 * 1024))
+    fs.readSync(fd, buf, 0, buf.length, 0); fs.closeSync(fd)
+    const text = buf.toString('utf8').replace(/^\uFEFF/, '')
+    let lines = 0
+    if (st.size <= 20 * 1024 * 1024) { const all = fs.readFileSync(abs); for (const c of all) if (c === 10) lines++ } else lines = 0
+    v = { rows: parseDelimited(text, ext === '.tsv' ? '\t' : text.split('\n')[0].split(';').length > text.split('\n')[0].split(',').length ? ';' : ',', 12).map((r) => r.slice(0, 10)), total: lines }
+  } else if (ext === '.xlsx' || ext === '.xlsm') {
+    v = await new Promise<Sheet>((resolve) => execFile(process.env.STUDIO_PYTHON || 'python3', ['-c', PY_SHEET, abs], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }, (err, out) => {
+      try { resolve(err ? { rows: [], total: 0 } : JSON.parse(String(out))) } catch { resolve({ rows: [], total: 0 }) }
+    }))
+  }
+  // drop empty rows and columns at the edges
+  let rows = v.rows.filter((r) => r.some((c) => c.trim()))
+  const width = rows.reduce((w, r) => Math.max(w, r.reduce((m, c, i) => (c.trim() ? i + 1 : m), 0)), 0)
+  rows = rows.map((r) => Array.from({ length: width }, (_, i) => r[i] ?? ''))
+  v = { ...v, rows }
+  sheetCache.set(abs, { key: st.mtimeMs, v })
+  return v
+}
+
 /**
  * A board with nothing on it: no designs, no planning objects, no HTML in its folder. Such boards are left out of every
  * board list (they come from tasks that never used Studio); opening one by name or link still works.
@@ -1145,7 +1217,7 @@ async function serveBoardFile(res: http.ServerResponse, url: URL) {
   const rel = (al ? [al.folder, ...parts] : parts).join('/')
   const abs = path.resolve(rt.root, rel)
   if (abs !== rt.root && !abs.startsWith(rt.root + path.sep)) throw new HttpError(403, 'outside the board')
-  const type = MIME[path.extname(abs).toLowerCase()]
+  const type = MIME[path.extname(abs).toLowerCase()] || (rel.includes('studio-assets/files/') ? 'application/octet-stream' : '')
   if (!type || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new HttpError(404, 'not found')
   if (url.searchParams.has('studio') && type.startsWith('text/html')) {
     const src = rt.src.get(rel)?.text ?? fs.readFileSync(abs, 'utf8')

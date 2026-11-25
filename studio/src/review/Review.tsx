@@ -116,7 +116,7 @@ async function sendDraft() {
     // on the board: the object under the spot (the smallest, a section last), so the pin moves with it
     const hit = Object.values(s.items).filter((i) => i.kind !== 'arrow' && at.x >= i.x && at.x <= i.x + i.w && at.y >= i.y && at.y <= i.y + i.h)
       .sort((a, b) => Number(a.kind === 'section') - Number(b.kind === 'section') || a.w * a.h - b.w * b.h)[0]
-    const what = hit ? { box: 'note', text: 'text', section: 'section', image: 'picture', video: 'video', link: 'link', arrow: 'arrow' }[hit.kind] : ''
+    const what = hit ? { box: 'note', text: 'text', section: 'section', image: 'picture', video: 'video', link: 'link', file: 'file', arrow: 'arrow' }[hit.kind] : ''
     body = { onBoard: true, add: { x: Math.round(at.x - (hit?.x || 0)), y: Math.round(at.y - (hit?.y || 0)), target: hit ? `the ${what}${hit.text ? ` "${hit.text.replace(/\s+/g, ' ').slice(0, 60)}"` : ''}` : 'the board', author: 'user', text, ...(hit ? { item: hit.id } : {}) } }
   }
   blur()
