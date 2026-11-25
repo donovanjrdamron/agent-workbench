@@ -513,7 +513,13 @@ function merge(server){
   for(const sc of server.cards){
     const lc = mine[sc.id];
     if(!lc){ if(!(sc.id in synced)) out.push(sc); continue; }          // I deleted it -> stays deleted
-    out.push(JSON.stringify(lc) !== synced[sc.id] ? lc : sc);           // I edited it -> mine wins
+    if(JSON.stringify(lc) === synced[sc.id]) out.push(sc);                // I didn't touch it -> theirs
+    else {                                                              // I edited it -> only the fields I changed win
+      const base = synced[sc.id] ? JSON.parse(synced[sc.id]) : {}, m = {...sc}, j = JSON.stringify;
+      for(const k of new Set([...Object.keys(lc), ...Object.keys(base)]))
+        if(j(lc[k]) !== j(base[k])){ if(k in lc) m[k] = lc[k]; else delete m[k]; }
+      out.push(m);
+    }
     delete mine[sc.id];
   }
   for(const id in mine) if(!(id in synced)) out.push(mine[id]);        // cards I created
