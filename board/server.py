@@ -812,7 +812,15 @@ class H(BaseHTTPRequestHandler):
                 if c.get("status") == "Done": continue
                 st = card_state(c)
                 if st in ("working", "waiting"):
-                    out[c["id"]] = {"state": st}
+                    seen, n = set(), {"working": 0, "waiting": 0}   # how many sessions are live on it (a resumed one counts once)
+                    for a in card_agents(c):
+                        x = session_state(a)
+                        if x["state"] not in n: continue
+                        k = x["sid"] or str(x["rec"].get("pid") or a.get("pid"))
+                        if k in seen: continue
+                        seen.add(k)
+                        n["working" if x["state"] == "working" or bg_tasks(live_pid(x)) else "waiting"] += 1
+                    out[c["id"]] = {"state": st, **n}
             return self.send(200, json.dumps(out))
         m = re.match(r"^/api/agent/([^/]+)$", p)
         if m:   # one session's conversation (?pid=, else the most relevant) and every session on the card

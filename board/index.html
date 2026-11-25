@@ -215,7 +215,9 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 .ag-st{width:14px;height:14px;display:grid;place-items:center;flex-shrink:0}
 .ag-st .adot{width:7px;height:7px}
 .ready{font-size:11.5px;line-height:18px;padding:0 6px;border-radius:3px;background:var(--pill-green-bg);color:var(--pill-green-fg);white-space:nowrap}
-.cspin{display:inline-flex}.cspin .spin{width:12px;height:12px;color:var(--muted)}
+.cspin{display:inline-flex;align-items:center;gap:3px}.cspin .spin{width:12px;height:12px;color:var(--muted)}
+.cspin b,.cwait b{font-size:11px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+.cwait{display:inline-flex;align-items:center;gap:3px}.cwait i{width:7px;height:7px;border-radius:50%;background:rgb(35,131,226)}
 .worksep{display:flex;align-items:center;gap:8px;color:var(--faint);font-size:11.5px;margin:6px 2px 0}
 .worksep::before,.worksep::after{content:"";flex:1;height:1px;background:var(--line)}
 .todaysep{display:flex;align-items:center;gap:8px;color:var(--text);font-size:11.5px;font-weight:600;margin:6px 2px;user-select:none}
@@ -600,7 +602,7 @@ function cardHTML(c, hit){
   const n = c.steps?.length||0, d = (c.steps||[]).filter(s=>s.done).length;
   return `<div class="card ${c.status==="Done"?"done":""}" draggable="true" data-id="${c.id}">
     <div class="t">${hit ? hit.title : esc(c.title)||''}</div>${hit?.why ? `<div class="why">${hit.why}</div>` : ""}
-    <div class="meta">${tag(c.brand)}${agents[c.id]?.state==="working"?`<span class="cspin" title="An agent is working on this">${SPIN}</span>`:""}${clockFor(c.id)}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
+    <div class="meta">${tag(c.brand)}${agentsMeta(agents[c.id])}${clockFor(c.id)}${c.studio||hasCanvas.has(c.id)?CANVAS_ICON:""}${n?`<span class="steps-mini"><span class="bar"><i style="width:${d/n*100}%"></i></span>${d}/${n}</span>`:""}</div>
   </div>`;
 }
 
@@ -1260,6 +1262,14 @@ async function mountNotes(c){
 
 /* ---------- linked Claude session ---------- */
 let agents = {};
+// the card's live sessions: a spinner (with how many when it's more than one) and, when several are on it, how many wait on you
+function agentsMeta(a){
+  if(!a) return "";
+  const w = a.working ?? (a.state === "working" ? 1 : 0), q = a.waiting ?? 0, many = w + q > 1;
+  const s = n => n === 1 ? "" : "s";
+  return (w ? `<span class="cspin" title="${w} agent${s(w)} working on this">${SPIN}${many ? `<b>${w}</b>` : ""}</span>` : "")
+       + (many && q ? `<span class="cwait" title="${q} agent${s(q)} waiting on you"><i></i><b>${q}</b></span>` : "");
+}
 async function pollAgents(){
   try{
     const a = await (await fetch("/api/agents")).json();
