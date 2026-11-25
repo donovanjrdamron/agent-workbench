@@ -49,6 +49,12 @@ def link(c):
         if rec.get("transcript"): a["transcript"] = rec["transcript"]; a["sid"] = rec.get("sid", "")
         if rec.get("cwd"): a["cwd"] = rec["cwd"]
     except Exception: pass
+    # already on this card (the same process, or the same conversation resumed): keep when it first joined, so a
+    # session doesn't count as "just visiting" its own card later; and a fork the board opened stays the card's own
+    old = [x for x in (c.get("agents") or ([c["agent"]] if c.get("agent") else [])) if str(x.get("pid")) == pid or (a.get("sid") and x.get("sid") == a.get("sid"))]
+    if old:
+        a["linked"] = min(x.get("linked") or a["linked"] for x in old)
+        if any(x.get("home") for x in old): a["home"] = True
     agents = [x for x in (c.get("agents") or ([c["agent"]] if c.get("agent") else [])) if str(x.get("pid")) != pid]
     c["agents"] = (agents + [a])[-12:]
     c["agent"] = a

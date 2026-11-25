@@ -428,7 +428,7 @@ def expect_link(handle, tab, cid):
                 try: r = json.load(open(f))
                 except Exception: continue
                 if r.get("pid") and ((handle and r.get("terminal") == handle) or (tab and (r.get("pane") or "").startswith(tab + ":"))):
-                    a = {"pid": str(r["pid"]), "terminal": r.get("terminal") or handle, "linked": int(time.time()), "transcript": r.get("transcript", ""), "sid": r.get("sid", ""), "cwd": r.get("cwd", "")}
+                    a = {"pid": str(r["pid"]), "terminal": r.get("terminal") or handle, "linked": int(time.time()), "transcript": r.get("transcript", ""), "sid": r.get("sid", ""), "cwd": r.get("cwd", ""), "home": True}   # opened for this card: it closes with it
                     def fn(card):
                         ags = [x for x in (card.get("agents") or ([card["agent"]] if card.get("agent") else [])) if str(x.get("pid")) != a["pid"]]
                         card["agents"] = (ags + [a])[-12:]; card["agent"] = a
@@ -597,15 +597,42 @@ def live_term(st):
     return hit or term
 
 # ---------- close a finished card's Orca tabs ----------
-def _terminal_busy_elsewhere(term, pid, cid):
-    """True when this terminal/session also belongs to a card that is not Done."""
+def _terminal_busy_elsewhere(term, pid, cid, sid=""):
+    """True when this terminal/session also belongs to a card that is not Done. Matched by the conversation too,
+    because a resumed session gets a new process id."""
     try: cards = json.load(open(DATA))["cards"]
     except Exception: return True
     for c in cards:
         if c["id"] == cid or c.get("status") == "Done": continue
         for a in card_agents(c):
-            if (term and a.get("terminal") == term) or str(a.get("pid")) == str(pid): return True
+            if (term and a.get("terminal") == term) or str(a.get("pid")) == str(pid) or (sid and a.get("sid") == sid): return True
     return False
+
+def is_visitor(a):
+    """A session that only dropped by: it already had a conversation going (6+ messages from you, or one started
+    over 2 hours earlier) when it joined this card, e.g. a standing agent sent on a side quest. Finishing the card leaves
+    it open. Sessions started for the card (from the board, a fork, a new task) are its own and close with it."""
+    if a.get("home"): return False
+    t, linked = a.get("transcript") or session_rec(a.get("pid")).get("transcript"), a.get("linked") or 0
+    if not t or not linked or not os.path.exists(t): return False
+    from datetime import datetime
+    before = []
+    try:
+        with open(t, "rb") as f:
+            for raw in f:
+                if b'"type":"user"' not in raw[:400] + raw[-3000:] or len(raw) > 2_000_000: continue
+                try: d = json.loads(raw)
+                except Exception: continue
+                if d.get("type") != "user" or d.get("isMeta") or d.get("isSidechain"): continue
+                c = (d.get("message") or {}).get("content")
+                text = c if isinstance(c, str) else "\n".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text") if isinstance(c, list) else ""
+                if not user_text(text.strip()): continue
+                try: ts = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp()
+                except Exception: continue
+                if ts >= linked - 5: break
+                before.append(ts)
+    except OSError: return False
+    return len(before) >= 6 or bool(before and linked - before[0] > 2 * 3600)
 
 def _other_live_session(term, a):
     """A different live Claude session now sits in this terminal (the tab was reused): leave it alone."""
@@ -633,7 +660,8 @@ def close_done(cid):
                 time.sleep(5)
             else: log(f"{term} still working after an hour, left open"); continue
             if session_state(a)["state"] == "ended" and _other_live_session(term, a): log(f"{term} now holds another session, left open"); continue
-            if _terminal_busy_elsewhere(term, a.get("pid"), cid): log(f"{term} also on another open card, left open"); continue
+            if _terminal_busy_elsewhere(term, a.get("pid"), cid, a.get("sid") or session_rec(a.get("pid")).get("sid", "")): log(f"{term} also on another open card, left open"); continue
+            if is_visitor(a): log(f"{term} was only visiting (it had a conversation going before this card), left open"); continue
             r = orca("terminal", "close", "--terminal", term, "--tab")
             log(f"{term} closed" if r.get("ok") else f"{term} not closed: {str(r.get('error'))[:160]}")
     except Exception as e: log(f"error {e}")
