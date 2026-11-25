@@ -26,7 +26,8 @@ const reloadTo = (loaded: Record<string, string>, id: string, rev: string) => { 
 export async function refreshBoards() {
   const r = await api('/api/boards')
   const boards: State['boards'] = r.boards || []
-  set({ boards })
+  // a board with nothing on it stays out of every list, unless it is the one on screen
+  set({ boards: boards.filter((b) => !b.empty || b.name === current || b.name === get().board) })
   return boards
 }
 

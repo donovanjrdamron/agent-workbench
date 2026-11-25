@@ -696,7 +696,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   const q = url.searchParams
   const post = req.method === 'POST'
   if (p === '/api/health') return json(res, { ok: true, root: ROOT, port: PORT, mode: 'html' }), true
-  if (p === '/api/boards' && !post) return json(res, { aliases: Object.fromEntries(Object.entries(aliases()).map(([k, v]) => [k, v.board])), boards: readReg().map((r) => ({ ...r, exists: fs.existsSync(r.root), loaded: boards.has(r.name), viewers: boards.get(r.name)?.clients.size || 0 })) }), true
+  if (p === '/api/boards' && !post) return json(res, { aliases: Object.fromEntries(Object.entries(aliases()).map(([k, v]) => [k, v.board])), boards: readReg().map((r) => ({ ...r, exists: fs.existsSync(r.root), loaded: boards.has(r.name), viewers: boards.get(r.name)?.clients.size || 0, empty: emptyBoard(r) })) }), true
   if (p === '/api/boards' && post) {
     const b = await bodyJson(req)
     const reg = readReg()
@@ -860,6 +860,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const alive = (ref?: string) => !ref || byId.has(ref) || rt.src.has(ref)
     for (const [k, it] of byId) if ((it.kind === 'arrow' && (!alive(it.from) || !alive(it.to))) || (it.attach && !byId.has(it.attach))) byId.delete(k)
     const after = [...byId.values()]
+    // a comment pinned on a board object goes when that object does
+    if (rt.state.comments.some((c) => c.item && !byId.has(c.item))) { rt.state.comments = rt.state.comments.filter((c) => !c.item || byId.has(c.item)); broadcast(rt, { type: 'comments', comments: rt.state.comments }) }
     rt.state.items = after
     if (b.by !== 'agent') {
       const top = rt.undo[rt.undo.length - 1]
@@ -873,9 +875,9 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     broadcast(rt, { type: 'items', items: after, origin: b.from })
     return json(res, { ok: true, items: after.length }), true
   }
-  if (p === '/api/comments' && !post) return json(res, { comments: rt.state.comments.filter((c) => (q.get('all') === '1' || !c.resolved) && (!id || c.design === id)).map((c) => ({ ...c, file: path.join(rt.root, c.design) })) }), true
+  if (p === '/api/comments' && !post) return json(res, { comments: rt.state.comments.filter((c) => (q.get('all') === '1' || !c.resolved) && (!id || c.design === id)).map((c) => ({ ...c, file: c.design ? path.join(rt.root, c.design) : null })) }), true
   if (p === '/api/comments' && post) {
-    if (b.add) needId(); if (b.add) rt.state.comments.push({ id: 'c_' + crypto.randomBytes(3).toString('hex'), x: 40, y: 40, target: '', text: '', author: 'user', resolved: false, replies: [], ts: Date.now(), ...b.add, design: id } as Comment)
+    if (b.add && !b.onBoard) needId(); if (b.add) rt.state.comments.push({ id: 'c_' + crypto.randomBytes(3).toString('hex'), x: 40, y: 40, target: '', text: '', author: 'user', resolved: false, replies: [], ts: Date.now(), ...b.add, design: b.onBoard ? '' : id } as Comment)
     if (b.update) { const c = rt.state.comments.find((c) => c.id === b.update.id); if (!c) throw new HttpError(404, `no such comment: ${b.update.id}`); Object.assign(c, b.update); if (b.reply) c.replies.push({ by: b.reply.by || 'agent', text: b.reply.text, ts: Date.now() }) }
     if (b.remove) rt.state.comments = rt.state.comments.filter((c) => c.id !== b.remove)
     saveState(rt)
@@ -1074,6 +1076,29 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     res.writeHead(200, { 'content-type': format === 'pdf' ? 'application/pdf' : format === 'jpg' ? 'image/jpeg' : 'image/png' }); res.end(r.buf); return true
   }
   return false
+}
+
+/**
+ * A board with nothing on it: no designs, no planning objects, no HTML in its folder. Such boards are left out of every
+ * board list (they come from tasks that never used Studio); opening one by name or link still works.
+ */
+const emptyCache = new Map<string, { key: string; empty: boolean }>()
+function emptyBoard(reg: Reg): boolean {
+  if (reg.permanent) return false // always listed, even before its first design
+  const rt = boards.get(reg.name)
+  if (rt) return !rt.src.size && !(rt.state.items || []).length
+  const sp = path.join(ROOT, 'boards', reg.name, 'state.json')
+  const mt = (f: string) => { try { return fs.statSync(f).mtimeMs } catch { return 0 } }
+  const key = `${mt(sp)}:${mt(reg.root)}`
+  const hit = emptyCache.get(reg.name)
+  if (hit && hit.key === key) return hit.empty
+  let empty = true
+  try {
+    const st: Partial<State> = fs.existsSync(sp) ? JSON.parse(fs.readFileSync(sp, 'utf8')) : {}
+    empty = !Object.keys(st.designs || {}).length && !(st.items || []).length && !listHtml(reg.root).length
+  } catch { empty = false }
+  emptyCache.set(reg.name, { key, empty })
+  return empty
 }
 
 /**

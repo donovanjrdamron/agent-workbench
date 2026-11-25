@@ -100,6 +100,6 @@ export function planOf(name: string, root: string, b: Board): string {
     out.push('')
   }
   const elsewhere = comments.filter((c) => !nodes.has(c.design))
-  if (elsewhere.length) { out.push('## Other open comments'); for (const c of elsewhere) out.push(`- ${c.design}: "${clean(c.text)}"`); out.push('') }
+  if (elsewhere.length) { out.push('## Other open comments'); for (const c of elsewhere) out.push(`- ${c.design || `On ${c.target || 'the board'}`}: "${clean(c.text)}"`); out.push('') }
   return out.join('\n').trimEnd() + '\n'
 }

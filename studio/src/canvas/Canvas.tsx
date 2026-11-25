@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { addComment, addLoose, cancelEditing, createFrame, finishEditing, fitLoose, insert, insertImages, local, moveOut, moveProps, mover, selectFresh, startEditing, style, zoomTo, type Mover } from '../commands'
+import { addBoardComment, addComment, addLoose, cancelEditing, createFrame, finishEditing, fitLoose, insert, insertImages, local, moveOut, moveProps, mover, selectFresh, startEditing, style, zoomTo, type Mover } from '../commands'
 import { boxOf, designAt, docOf, elOf, frameAt, frames, isPage, isReloading, isRoot, isTextLeaf, LOOSE_PAD, markReloading, pick, piecesOf, quiet, rawBox, remeasure, restoreSelection, sidOf } from '../dom'
 import { saveLayout } from '../net'
 import { bump, get, select, selectFrames, set, toast, useStore, type Box, type Guide } from '../store'
@@ -20,7 +20,7 @@ type Pt = { x: number; y: number }
  * Scaling like Photoshop (or Figma's K tool): every size in the piece grows by the same factor, so text scales like a
  * picture: font sizes, letter and line spacing, padding, borders, corners, gaps, and the parts placed inside it.
  */
-type ScalePart = { el: HTMLElement; v: Record<string, number> }
+type ScalePart = { el: HTMLElement; v: Record<string, number>; fix?: Record<string, string> }
 const BOX = ['padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius', 'row-gap', 'column-gap', '-webkit-text-stroke-width']
 function scaleParts(root: HTMLElement): ScalePart[] {
   const parts: ScalePart[] = []
@@ -39,11 +39,15 @@ function scaleParts(root: HTMLElement): ScalePart[] {
     if (el === root ? !(cs.whiteSpace === 'nowrap' && !el.style.width) : el.style.width || tag === 'img' || tag === 'svg') v.width = el.getBoundingClientRect().width / (el === root ? 1 : 1)
     if ((el === root && el.style.height) || (el !== root && (el.style.height || tag === 'img' || tag === 'svg'))) v.height = el.getBoundingClientRect().height
     if (el !== root && (cs.position === 'absolute' || cs.position === 'relative')) { const l = parseFloat(cs.left), t = parseFloat(cs.top); if (Number.isFinite(l) && cs.left !== 'auto') v.left = l; if (Number.isFinite(t) && cs.top !== 'auto') v.top = t }
-    if (Object.keys(v).length) parts.push({ el, v })
+    // a part pinned on all four sides cannot scale: its size comes from the pins. Left and top place it, so let go of the other two.
+    const fix: Record<string, string> = {}
+    if (el !== root && 'left' in v && (el.style.right || el.style.getPropertyValue('inset')) && cs.right !== 'auto') fix.right = 'auto'
+    if (el !== root && 'top' in v && (el.style.bottom || el.style.getPropertyValue('inset')) && cs.bottom !== 'auto') fix.bottom = 'auto'
+    if (Object.keys(v).length) parts.push({ el, v, fix })
   }
   return parts
 }
-const scaled = (part: ScalePart, k: number) => Object.fromEntries(Object.entries(part.v).map(([p, n]) => [p, `${Math.round(n * k * 100) / 100}px`]))
+const scaled = (part: ScalePart, k: number): Record<string, string> => ({ ...Object.fromEntries(Object.entries(part.v).map(([p, n]) => [p, `${Math.round(n * k * 100) / 100}px`])), ...part.fix })
 type Drag =
   | { kind: 'pan'; sx: number; sy: number; vx: number; vy: number }
   // through: the press landed on a selection it does not replace (inside a selected group, on a transparent spot of a selected cut-out). A drag moves that selection; a plain click selects `through` instead.
@@ -283,7 +287,10 @@ export function Canvas() {
         const init = { width: el.style.width, height: el.style.height, left: el.style.left, top: el.style.top, translate: el.style.translate }
         const isImg = el.tagName === 'IMG' || el.tagName === 'svg'
         // a corner of a text block (or of anything, with the Scale tool, K) scales it all like a picture
-        const scale = handle.length === 2 && !isImg && (s.scaleMode || isTextLeaf(el)) ? scaleParts(el) : null
+        // a group (a piece that places its own parts, like a before / after pair) scales as one too, the way a Figma group does:
+        // dragging its corner must never leave the parts behind at their old size
+        const isGroup = Array.from(el.children).some((c) => getComputedStyle(c).position === 'absolute')
+        const scale = handle.length === 2 && !isImg && (s.scaleMode || isTextLeaf(el) || isGroup) ? scaleParts(el) : null
         drag.current = { kind: 'resize', design: s.sel.design, handle, p0: p, el, m: mover(el), bw: parseFloat(cs.width) || el.offsetWidth, bh: parseFloat(cs.height) || el.offsetHeight, img: isImg, box0: boxOf(s.sel.design, el), init, last: {}, scale }
       }
       return
@@ -315,7 +322,7 @@ export function Canvas() {
       }
     }
     const design = designAt(p)
-    if (s.tool === 'note') { if (design) addComment(design, p, pick(design, p, false)); return }
+    if (s.tool === 'note') { if (design) addComment(design, p, pick(design, p, false)); else addBoardComment(p); return }
     if (s.tool === 'text') {
       const TEXT = 'font-size:48px;font-weight:600;line-height:1.1;white-space:nowrap'
       if (design && !s.designs[design].loose) { const l = local(design, p); insert(design, `<div style="position:absolute;left:${l.x}px;top:${l.y}px;${TEXT}">Text</div>`, true) }

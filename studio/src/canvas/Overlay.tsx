@@ -28,9 +28,12 @@ export function shortName(id: string): string {
 export const nameOf = (d: Design | undefined, id: string) => d?.title || shortName(id)
 
 function Pin({ c, index }: { c: Comment; index: number }) {
-  const d = useStore((s) => s.designs[c.design])
+  const d0 = useStore((s) => s.designs[c.design])
+  const it = useStore((s) => (c.item ? s.items[c.item] : undefined))
   const view = useStore((s) => s.view)
   const open = useStore((s) => s.openComment === c.id)
+  // a board comment (no design) sits on its board object, or at its own place on the bare board
+  const d = c.design ? d0 : c.item ? it : { x: 0, y: 0 }
   if (!d) return null
   const stop = { onPointerDown: (e: React.PointerEvent) => e.stopPropagation(), onDoubleClick: (e: React.MouseEvent) => e.stopPropagation() }
   return (
@@ -38,7 +41,7 @@ function Pin({ c, index }: { c: Comment; index: number }) {
       <button className="pin-dot" title={c.text || 'Comment'} onPointerDown={(e) => { e.stopPropagation(); set({ openComment: open ? null : c.id }) }}>{c.author === 'agent' ? 'AI' : index + 1}</button>
       {open && (
         <div className="bubble" {...stop}>
-          <p className="hint">On {c.target || 'the design'}</p>
+          <p className="hint">On {c.target || (c.design ? 'the design' : 'the board')}</p>
           <textarea autoFocus={!c.text} defaultValue={c.text} placeholder="Tell the agent what to change here…" rows={3}
             onBlur={(e) => { const v = e.target.value.trim(); if (v !== c.text) commentOp({ design: c.design, update: { id: c.id, text: v } }) }} />
           {c.replies.map((r, i) => <p key={i} className={`reply ${r.by}`}><b>{r.by === 'agent' ? 'Agent' : 'You'}</b> {r.text}</p>)}

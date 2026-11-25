@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { runTool, useAi } from '../ai'
-import { addComment, copy, copyFrames, createFrame, duplicateFrames, pasteFrames, removeDesigns, deleteSelection, duplicate, editSelected, fitAll, fitSelection, focusDesign, paste, removeDesign, revert, selectParent, style, tidy, toggleHidden, zOrder, zoomTo } from '../commands'
+import { addBoardComment, addComment, copy, copyFrames, createFrame, duplicateFrames, pasteFrames, removeDesigns, deleteSelection, duplicate, editSelected, fitAll, fitSelection, focusDesign, paste, removeDesign, revert, selectParent, style, tidy, toggleHidden, zOrder, zoomTo } from '../commands'
 import { designAt, elOf, isPage, isTextLeaf, pick, piecesOf, sidOf } from '../dom'
 import { addNote, addSection, addStep, addText, copyItems, duplicateItems, flipItems, pasteItems, removeItems, selectAllItems, selectItems, startEdit } from '../items'
 import { exportDesign, itemOp } from '../net'
@@ -129,6 +129,7 @@ function itemMenu(ids: string[]): Entry[] {
     'sep',
     ...(one && (one.kind === 'box' || one.kind === 'text' || one.kind === 'section') ? [{ label: one.kind === 'section' ? 'Rename section' : 'Edit text', keys: 'Enter', run: () => startEdit(one.id) } as Entry] : []),
     ...(one && (one.kind === 'image' || one.kind === 'video') ? [{ label: 'Add note', run: () => addNote(one.id) } as Entry] : []),
+    ...(one && one.kind !== 'arrow' ? [{ label: 'Comment here', keys: 'C', run: () => addBoardComment({ x: one.x + Math.min(one.w, 40), y: one.y + Math.min(one.h, 40) }) } as Entry] : []),
     ...(one?.kind === 'link' && one.url ? [{ label: 'Open link', run: () => window.open(one.url, '_blank', 'noopener') } as Entry] : []),
     { label: 'Flip horizontal', keys: '⇧H', run: () => flipItems('x'), disabled: !turnable.length },
     { label: 'Flip vertical', keys: '⇧V', run: () => flipItems('y'), disabled: !turnable.length },

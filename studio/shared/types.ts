@@ -15,9 +15,9 @@ export interface Design {
 
 export interface Comment {
   id: string
-  design: string
-  item?: string // board comment: the board object under the pin
-  x: number // artboard coordinates
+  design: string // '' = pinned on the board itself, not on a design (a video, a picture, a section, or bare board)
+  item?: string // board comment: the board object under the pin; x and y are then measured from its corner, so the pin travels with it
+  x: number // artboard coordinates (board comments: board coordinates, or from the item's corner)
   y: number
   target: string // description of the element under the pin
   text: string

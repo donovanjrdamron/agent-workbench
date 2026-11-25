@@ -160,7 +160,7 @@ async function main() {
       const r = await call('GET', `/api/comments?${q({ board: need(board, 'board'), design: pos[1], all: flags.all ? 1 : '' })}`)
       if (!r.comments.length) return console.log('No open comments.')
       for (const c of r.comments) {
-        console.log(`${c.id}  ${c.resolved ? 'resolved' : 'OPEN'}  by ${c.author}  ${c.design}  at ${c.x},${c.y}  on ${c.target || 'the design'}`)
+        console.log(`${c.id}  ${c.resolved ? 'resolved' : 'OPEN'}  by ${c.author}  ${c.design || '(on the board)'}  at ${c.x},${c.y}  on ${c.target || 'the design'}`)
         console.log(`    ${JSON.stringify(c.text)}`)
         for (const rp of c.replies) console.log(`    ↳ ${rp.by}: ${rp.text}`)
       }

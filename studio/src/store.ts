@@ -6,7 +6,7 @@ export interface Box { x: number; y: number; w: number; h: number }
 export interface Guide { axis: 'x' | 'y'; pos: number; from: number; to: number }
 
 export interface State {
-  boards: { name: string; root: string; exists: boolean; closed?: boolean }[]
+  boards: { name: string; root: string; exists: boolean; closed?: boolean; empty?: boolean }[]
   board: string
   root: string
   designs: Record<string, Design>

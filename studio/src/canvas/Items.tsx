@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { Item } from '../../shared/types'
 import { designAt } from '../dom'
+import { addBoardComment } from '../commands'
 import { addNext, addNote, boxFor, commitMove, dragGroup, dropIntoDesign, selectItems, startEdit } from '../items'
 import { itemOp } from '../net'
 import { AiButtons } from '../panels/AiDialog'
@@ -29,6 +30,7 @@ function press(e: React.PointerEvent, it: Item, opts: { resize?: Corner; rotate?
   if (!free() || e.button !== 0) return
   e.stopPropagation()
   e.preventDefault()
+  if (get().tool === 'note' && !opts.resize && !opts.rotate) { addBoardComment(toWorld(e)); return } // the comment tool pins on board objects too
   if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur()
   const s = get()
   let ids = s.isel

@@ -245,7 +245,9 @@ const LOOK = ['font-family', 'font-size', 'font-weight', 'font-style', 'line-hei
 // More of the look, carried when it differs: what makes a card a card and a cut-out a cut-out.
 const MORE = ['background-image', 'background-size', 'background-position', 'background-repeat', '-webkit-background-clip', '-webkit-text-fill-color', 'border-top', 'border-right', 'border-bottom', 'border-left', 'box-shadow', 'opacity', 'rotate', 'transform', 'filter', 'backdrop-filter', '-webkit-mask-image', '-webkit-mask-size', '-webkit-mask-position', '-webkit-mask-repeat', 'text-shadow', 'text-decoration-line', 'overflow', 'object-position', 'flex-wrap', 'box-sizing', 'vertical-align', 'aspect-ratio']
 // Only for what is inside the piece: where each part sits in it.
-const INSIDE = ['position', 'left', 'top', 'right', 'bottom']
+// Never right / bottom: left and top already say where it sits, and a pinned right or bottom would stop the part
+// from growing with its text or scaling with the piece (a label's chip came out the wrong height, Nov 21).
+const INSIDE = ['position', 'left', 'top']
 const INHERITED = LOOK.slice(0, 9).concat('white-space')
 /** A computed value as it should be written: sizes that follow the font stay relative to it, and no double quotes (it goes in an attribute). */
 function written(prop: string, v: string, fontSize: number): string {
@@ -901,6 +903,16 @@ export function editSelected() {
 export async function addComment(design: string, pt: { x: number; y: number }, target: Element | null) {
   const d = get().designs[design]
   const r = await commentOp({ design, add: { x: Math.round(pt.x - d.x), y: Math.round(pt.y - d.y), target: target && !isRoot(design, target) ? label(target) : 'the whole design', author: 'user' } })
+  set({ tool: 'move', openComment: r.id || null })
+}
+
+/** A comment on the board itself: on the object under the point (the smallest one, a section last), or on bare board. */
+export async function addBoardComment(pt: { x: number; y: number }) {
+  const hit = Object.values(get().items).filter((i) => i.kind !== 'arrow' && pt.x >= i.x && pt.x <= i.x + i.w && pt.y >= i.y && pt.y <= i.y + i.h)
+    .sort((a, b) => Number(a.kind === 'section') - Number(b.kind === 'section') || a.w * a.h - b.w * b.h)[0]
+  const name = (t?: string) => (t ? ` "${t.replace(/\s+/g, ' ').slice(0, 60)}"` : '')
+  const target = !hit ? 'the board' : `the ${{ box: 'note', text: 'text', section: 'section', image: 'picture', video: 'video', link: 'link', arrow: 'arrow' }[hit.kind]}${name(hit.text)}`
+  const r = await commentOp({ onBoard: true, add: { x: Math.round(pt.x - (hit?.x || 0)), y: Math.round(pt.y - (hit?.y || 0)), target, author: 'user', ...(hit ? { item: hit.id } : {}) } })
   set({ tool: 'move', openComment: r.id || null })
 }
 
