@@ -26,6 +26,20 @@ export function renderMd(text) {
       while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++]);
       html += `<pre><code>${esc(body.join("\n"))}</code></pre>`; i++; continue;
     }
+    // a table: a header row, then a |---|---| line, then rows. Number columns line up on the right.
+    if (/^\s*\|.*\|\s*$/.test(ln) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
+      flushP(); flushL();
+      const cells = r => r.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, "|"));
+      const head = cells(ln), rows = [];
+      i += 2;
+      while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(cells(lines[i++]));
+      const n = head.length, plain = c => c.replace(/[*_`~]/g, "").trim();
+      const num = head.map((_, k) => rows.some(r => plain(r[k] || "")) && rows.every(r => !plain(r[k] || "") || /^[~≈$€£+\-–(]*[\d.,]+%?\)?(\s*\(.*\))?$/.test(plain(r[k] || ""))));
+      const td = (t, c, k) => `<${t}${num[k] ? ' class="num"' : ""}>${inline(c || "")}</${t}>`;
+      html += `<div class="md-table"><table><thead><tr>${head.map((c, k) => td("th", c, k)).join("")}</tr></thead><tbody>`
+        + rows.map(r => `<tr>${Array.from({ length: n }, (_, k) => td("td", r[k], k)).join("")}</tr>`).join("") + `</tbody></table></div>`;
+      continue;
+    }
     let m;
     if ((m = ln.match(/^\s*(#{1,4})\s+(.*)$/))) { flushP(); flushL(); html += `<h${Math.min(m[1].length + 2, 6)}>${inline(m[2])}</h${Math.min(m[1].length + 2, 6)}>`; }
     else if ((m = ln.match(/^\s*[-*•]\s+(.*)$/))) { flushP(); if (!list || list.t !== "ul") { flushL(); list = { t: "ul", items: [] }; } list.items.push(m[1]); }

@@ -309,6 +309,13 @@ div.drag-ghost { background: rgba(13,153,255,0.12); }
 .ag-m code { font: 12px ui-monospace, Menlo, monospace; background: rgba(255,255,255,.08); padding: 1px 4px; border-radius: 3px }
 .ag-m pre { background: rgba(0,0,0,.3); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 4px 0 } .ag-m pre code { background: none; padding: 0 }
 .ag-m a { color: #4db4ff } .ag-m blockquote { margin: 4px 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--dim) }
+.ag-m .md-table { overflow-x: auto; margin: 6px 0 10px; border: 1px solid var(--line); border-radius: 8px; max-width: 100% }
+.ag-m .md-table table { border-collapse: collapse; font-size: 12.5px; line-height: 1.35; min-width: 100% }
+.ag-m .md-table th, .ag-m .md-table td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap }
+.ag-m .md-table th { font-weight: 600; color: var(--dim); background: rgba(255,255,255,.05) }
+.ag-m .md-table tr:last-child td { border-bottom: 0 }
+.ag-m .md-table tbody tr:nth-child(even) td { background: rgba(255,255,255,.025) }
+.ag-m .md-table .num { text-align: right; font-variant-numeric: tabular-nums }
 .ag-m table { border-collapse: collapse; margin: 4px 0; font-size: 12px } .ag-m td, .ag-m th { border: 1px solid var(--line); padding: 3px 6px; vertical-align: top }
 .ag-send { margin: 0 10px 10px; padding: 10px 10px 6px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); cursor: text; }
 .ag-send:focus-within { border-color: #5a5a5a; }
