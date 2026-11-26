@@ -199,6 +199,12 @@ h1{font-size:32px;font-weight:700;margin:0 0 24px;letter-spacing:-.01em}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .ag{border:1px solid var(--line);border-radius:12px;margin:14px 0 4px;position:relative}
 .ag-head{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 6px;border-bottom:1px solid var(--line);font-size:13px}
+.ag-fold{flex:none;width:24px;height:24px;margin-right:-6px;display:grid;place-items:center;border-radius:6px;color:var(--faint)}
+.ag-fold:hover{background:var(--hover);color:var(--text)}
+.ag-fold .chev{transition:transform .15s}
+.ag.folded .ag-fold .chev{transform:rotate(-90deg)}
+.ag.folded > :not(.ag-head):not(.ag-menu){display:none!important}
+.ag.folded .ag-head{border-bottom:0}
 .ag-pick{display:flex;align-items:center;gap:7px;min-width:0;flex:0 1 auto;margin-right:auto;padding:4px 8px;border-radius:6px;text-align:left}
 .ag-pick:hover,.ag-pick.on{background:var(--hover)}
 .ag-pick .ag-title{color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -1429,6 +1435,8 @@ const stIcon = st => `<span class="ag-st">${st === "working" || st === "starting
 const stText = st => st === "working" ? "Working…" : st === "starting" ? "Turning on…" : st === "waiting" ? "Online · waiting on you" : "Offline";
 const sessName = s => s.title || "Untitled session";
 const pickKey = cid => "agentPick:" + cid;
+// the chat on every task: shown, or folded down to its header row (one setting for all tasks)
+const agFolded = () => { try{ return localStorage.getItem("agFold") === "1"; }catch(e){ return false; } };
 
 async function mountAgent(c){
   stopAgent();
@@ -1639,8 +1647,8 @@ async function mountAgent(c){
     agentSig = sig; d = r;
     const fresh = !box.querySelector(".ag");
     if(fresh){
-      box.innerHTML = `<div class="ag">
-        <div class="ag-head"><button class="ag-pick" type="button"><span class="ag-cur"></span><span class="ag-title"></span>${CHEV}</button>
+      box.innerHTML = `<div class="ag${agFolded() ? " folded" : ""}">
+        <div class="ag-head"><button class="ag-fold" type="button" title="Hide or show the chat (stays that way on every task)">${CHEV}</button><button class="ag-pick" type="button"><span class="ag-cur"></span><span class="ag-title"></span>${CHEV}</button>
           <button class="ag-new ag-forkb" type="button" title="Fork this session: a new one in Orca with all of this conversation, to do another part of the job">⑂ Fork</button><button class="ag-new" type="button" title="Start another Claude session on this task">+ New</button><button class="ag-open" type="button" title="Jump to this terminal in Orca">Open ↗</button></div>
         <div class="ag-msgs"></div>
         <div class="ag-grow" title="Drag to make the chat taller or shorter (double-click resets)"></div>
@@ -1650,6 +1658,11 @@ async function mountAgent(c){
           <button class="ag-go" type="submit" title="Send" disabled>${UP}</button></div>
           <input type="file" multiple hidden></form>
       </div>`;
+      box.querySelector(".ag-fold").onclick = () => {
+        const on = !agFolded();
+        try{ localStorage.setItem("agFold", on ? "1" : ""); }catch(e){}
+        box.querySelector(".ag").classList.toggle("folded", on);
+      };
       const f = box.querySelector(".ag-send"), ta = f.querySelector("textarea"), go = f.querySelector(".ag-go"), file = f.querySelector("input[type=file]");
       // "/" suggests commands and skills, as in the terminal
       let cmds = null, cmdPid = null, hits = [], at = 0;
