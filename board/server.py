@@ -34,6 +34,7 @@ TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf
          ".svg": "image/svg+xml", ".mp4": "video/mp4", ".mov": "video/quicktime", ".m4v": "video/mp4", ".webm": "video/webm"}
 
 HIST = os.path.join(HERE, "history")
+NOTES = os.path.join(HERE, "notes.json")   # the floating notes workspace: pages (markdown) that can sit inside other pages
 def snapshot(src=DATA, hist=HIST):
     """Keep a copy at most once a minute, last 3000 copies."""
     os.makedirs(hist, exist_ok=True)
@@ -786,6 +787,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, open(os.path.join(HERE, "editor.js"), "rb").read(), "text/javascript; charset=utf-8")
         if p == "/api/board":
             return self.send(200, open(DATA).read() if os.path.exists(DATA) else '{"cards":[]}')
+        if p == "/api/notes":
+            return self.send(200, open(NOTES).read() if os.path.exists(NOTES) else '{"pages":{},"deleted":{}}', ver=mtime_version(NOTES))
         if p == "/api/sessions":
             return self.send(200, json.dumps({"now": int(time.time()), "sessions": sessions()}))
         if p == "/api/automations":   # follow-ups and recurring jobs, newest first, with what they last reported
@@ -1239,6 +1242,20 @@ class H(BaseHTTPRequestHandler):
                 os.replace(tmp, path)
             write_digest(cid, d)
             return self.send(200, '{"ok":true}', ver=mtime_version(path))
+        if p == "/api/notes":   # the whole notes workspace; a stale write gets 409 and the page merges page by page
+            body = self.body()
+            try: d = json.loads(body); assert isinstance(d.get("pages"), dict)
+            except Exception: return self.send(400, '{"error":"bad notes"}')
+            with open(NOTES + ".lock", "w") as lk:
+                fcntl.flock(lk, fcntl.LOCK_EX)
+                if self.headers.get("X-Version") != mtime_version(NOTES):
+                    return self.send(409, '{"error":"stale"}', ver=mtime_version(NOTES))
+                if os.path.exists(NOTES):
+                    shutil.copy2(NOTES, NOTES + ".bak"); snapshot(NOTES, os.path.join(HIST, "notes"))
+                tmp = NOTES + ".tmp"
+                with open(tmp, "wb") as f: f.write(body)
+                os.replace(tmp, NOTES)
+            return self.send(200, '{"ok":true}', ver=mtime_version(NOTES))
         if p != "/api/board": return self.send(404, "{}")
         body = self.body()
         try:

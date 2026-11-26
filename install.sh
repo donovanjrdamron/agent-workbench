@@ -11,7 +11,7 @@ command -v node >/dev/null || { echo "Needs Node 20+ for Studio:  brew install n
 S="$HOME/.claude/scripts"; mkdir -p "$S/board" "$S/waiting"
 
 # 1. code (your cards, boards, canvases and media are never touched)
-rsync -a --exclude 'board.json*' --exclude 'kept.json' --exclude 'permanents.json' --exclude 'projects.json' --exclude 'automations.json*' --exclude history --exclude canvases \
+rsync -a --exclude 'board.json*' --exclude 'kept.json' --exclude 'permanents.json' --exclude 'projects.json' --exclude 'automations.json*' --exclude 'notes.json*' --exclude history --exclude canvases \
   --exclude media --exclude src --exclude '*.bak' --exclude '*.log' --exclude __pycache__ board/ "$S/board/"
 rsync -a --exclude '*.bak' waiting/ "$S/waiting/"
 chmod +x "$S/board/card" "$S/board/board" "$S/board/studio_hook.py" "$S/waiting/"*

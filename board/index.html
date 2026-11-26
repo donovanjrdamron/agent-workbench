@@ -418,11 +418,11 @@ body.peek-sizing .peek{transition:none}
 .nted .is-editor-empty:first-child::before{content:attr(data-placeholder);color:var(--faint);float:left;height:0;pointer-events:none}
 .nted .is-empty.has-focus::before{content:attr(data-placeholder);color:var(--faint);float:left;height:0;pointer-events:none}
 /* slash menu */
-.slash{position:fixed;z-index:20;width:240px;max-height:320px;overflow-y:auto;background:var(--bg);border-radius:6px;box-shadow:var(--peek-shadow);padding:6px}
+.slash{position:fixed;z-index:50;width:240px;max-height:320px;overflow-y:auto;background:var(--bg);border-radius:6px;box-shadow:var(--peek-shadow);padding:6px}
 .slash .it{display:flex;gap:10px;align-items:center;padding:5px 8px;border-radius:4px;cursor:pointer}
 .slash .it.on{background:var(--hover)}
 .slash .ic{width:28px;height:28px;border:1px solid var(--line);border-radius:4px;display:grid;place-items:center;font-size:13px;color:var(--muted);flex-shrink:0;background:var(--bg)}
-.bubble{position:fixed;z-index:20;display:flex;background:var(--bg);border-radius:6px;box-shadow:var(--peek-shadow);padding:3px}
+.bubble{position:fixed;z-index:50;display:flex;background:var(--bg);border-radius:6px;box-shadow:var(--peek-shadow);padding:3px}
 .bubble button{padding:3px 8px;border-radius:4px;font-size:14px;min-width:28px}
 .bubble button:hover{background:var(--hover)}
 .bubble button.on{color:var(--accent)}
@@ -430,6 +430,63 @@ body.peek-sizing .peek{transition:none}
 .del:hover{background:rgba(212,76,71,.08)}
 .saved{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:4px 12px;border-radius:4px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
 .saved.on{opacity:.9}
+/* notes workspace */
+#nb{position:fixed;z-index:40;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--muted);box-shadow:0 4px 16px rgba(0,0,0,.16),0 1px 3px rgba(0,0,0,.1);display:grid;place-items:center;cursor:grab;touch-action:none;user-select:none;padding:0;transition:color .15s,transform .15s}
+#nb:hover{color:var(--text);transform:scale(1.06)} #nb:active{cursor:grabbing} #nb svg{width:21px;height:21px} #nb[hidden]{display:none}
+#np{position:fixed;z-index:40;background:var(--bg);border:1px solid var(--line);border-radius:12px;box-shadow:var(--peek-shadow),0 20px 60px rgba(0,0,0,.22);display:flex;flex-direction:column;overflow:hidden}
+#np[hidden]{display:none}
+.np-head{display:flex;align-items:flex-end;gap:2px;padding:6px 6px 0;border-bottom:1px solid var(--line);cursor:grab;touch-action:none;user-select:none;flex:none;background:color-mix(in srgb,var(--text) 3%,var(--bg))}
+.np-head > .np-ib{margin-bottom:5px}
+.np-tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;min-width:0;flex:0 1 auto}
+.np-tabs::-webkit-scrollbar{display:none}
+.np-tab{display:flex;align-items:center;gap:4px;max-width:190px;height:32px;padding:0 4px 0 12px;border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;font-size:13px;color:var(--muted);cursor:pointer;flex:none;box-sizing:border-box;margin-bottom:-1px}
+.np-tab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.np-tab:hover{background:var(--hover);color:var(--text)}
+.np-tab.on{background:var(--bg);border-color:var(--line);color:var(--text);height:33px}
+.np-tx{border:0;background:none;color:var(--faint);width:20px;height:20px;border-radius:5px;font-size:10px;cursor:pointer;opacity:0;flex:none;padding:0}
+.np-tab:hover .np-tx,.np-tab.on .np-tx{opacity:1} .np-tx:hover{background:var(--hover);color:var(--text)}
+.np-drag{flex:1;align-self:stretch;min-width:20px}
+.np-ib{border:0;background:none;color:var(--muted);width:26px;height:26px;border-radius:6px;cursor:pointer;display:grid;place-items:center;font-size:15px;flex:none;padding:0}
+.np-ib:hover{background:var(--hover);color:var(--text)}
+.np-body{flex:1;display:flex;min-height:0;position:relative}
+.np-side{width:220px;flex:none;border-right:1px solid var(--line);overflow-y:auto;padding:8px 6px;box-sizing:border-box;background:color-mix(in srgb,var(--text) 2%,var(--bg))}
+#np.noside .np-side{display:none}
+.np-sh{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:var(--faint);padding:0 2px 4px 8px}
+.np-row{display:flex;align-items:center;gap:3px;height:28px;border-radius:6px;font-size:13.5px;color:var(--muted);cursor:pointer;padding-right:3px}
+.np-row:hover{background:var(--hover);color:var(--text)} .np-row.on{background:var(--hover);color:var(--text);font-weight:500}
+.np-ric{display:grid;color:var(--faint);flex:none}
+.np-rt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.np-row .np-ib{width:22px;height:22px;opacity:0;font-size:14px} .np-row:hover .np-ib{opacity:1}
+.np-car{border:0;background:none;color:var(--faint);width:16px;height:22px;font-size:12px;cursor:pointer;flex:none;padding:0;border-radius:4px}
+.np-car:not(:disabled):hover{background:var(--hover);color:var(--text)} .np-car:disabled{cursor:default}
+.np-row.drop-in{box-shadow:inset 0 0 0 2px var(--accent)} .np-row.drop-before{box-shadow:inset 0 2px 0 var(--accent)} .np-row.drop-after{box-shadow:inset 0 -2px 0 var(--accent)}
+.np-none{font-size:13px;color:var(--faint);padding:6px 8px}
+.np-main{flex:1;min-width:0;overflow-y:auto;padding:24px 40px 40px;box-sizing:border-box}
+.np-main.blank > :not(.np-empty),.np-main:not(.blank) > .np-empty{display:none}
+.np-crumbs{font-size:12.5px;color:var(--faint);min-height:18px;margin-bottom:6px;display:flex;flex-wrap:wrap;gap:5px}
+.np-crumbs a{cursor:pointer;color:var(--muted)} .np-crumbs a:hover{color:var(--text);text-decoration:underline}
+.np-title{display:block;width:100%;border:0;outline:none;background:none;color:var(--text);font-family:inherit;font-size:30px;font-weight:700;line-height:1.25;padding:0;margin:0 0 12px}
+.np-title::placeholder{color:var(--faint)}
+.np-ed.nted{margin-top:0;min-height:120px}
+.np-ed.nted .ProseMirror{min-height:140px;padding-bottom:16px}
+.np-kids{border-top:1px solid var(--line);margin-top:8px;padding-top:10px}
+.np-kh{font-size:12px;font-weight:600;color:var(--faint);margin:0 0 4px 6px}
+.np-kid{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:14.5px;color:var(--text)}
+.np-kid svg{color:var(--faint);flex:none} .np-kid span{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.np-kid:hover{background:var(--hover)}
+.np-add{border:0;background:none;color:var(--faint);font:inherit;font-size:13.5px;padding:5px 6px;margin-top:2px;cursor:pointer;border-radius:6px}
+.np-add:hover{background:var(--hover);color:var(--muted)}
+.np-empty{max-width:420px;margin:40px auto 0}
+.np-et{font-size:22px;font-weight:700;margin-bottom:8px} .np-es{color:var(--muted);font-size:14px;line-height:1.5;margin-bottom:16px}
+.np-btn{border:0;background:var(--accent);color:#fff;border-radius:8px;padding:8px 14px;font:inherit;font-size:13.5px;cursor:pointer}
+.np-grip{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;touch-action:none}
+.np-grip::after{content:"";position:absolute;right:4px;bottom:4px;width:7px;height:7px;border-right:2px solid var(--faint);border-bottom:2px solid var(--faint);border-radius:0 0 2px 0;opacity:.6}
+@media (max-width:700px){
+  #np{left:0!important;top:0!important;width:100vw!important;height:100dvh!important;border-radius:0;border:0}
+  .np-head{cursor:default} .np-grip{display:none}
+  .np-side{position:absolute;inset:0 auto 0 0;z-index:2;width:min(280px,85vw);box-shadow:var(--peek-shadow)}
+  .np-main{padding:18px 16px 40px} .np-title{font-size:26px}
+}
 </style>
 </head>
 <body>
@@ -1159,7 +1216,8 @@ function renderLists(){ if(view === "board") renderBoard(); }
 
 
 /* ---------- notes editor ---------- */
-let T = null, ed = null;
+let T = null, ed = null, curEd = null;
+const E = () => curEd || ed || ned;   // the editor you're typing in: a card's notes, or a page in the notes workspace
 const loadT = () => T ? Promise.resolve(T) : import("/editor.js").then(m => (T = m));
 const SLASH = [
   {k:"Text",       ic:"T",   kw:"text paragraph p", run:c=>c.setParagraph()},
@@ -1172,10 +1230,11 @@ const SLASH = [
   {k:"Quote",      ic:"❝",   kw:"quote blockquote", run:c=>c.toggleBlockquote()},
   {k:"Code",       ic:"</>", kw:"code codeblock", run:c=>c.toggleCodeBlock()},
   {k:"Divider",    ic:"—",   kw:"divider hr line", run:c=>c.setHorizontalRule()},
+  {k:"Page",       ic:"📄",  kw:"page subpage inside new", page:true},   // notes workspace only: a new page inside this one
 ];
 let slash = null; // {from, q, sel, el}
 function closeSlash(){ slash?.el.remove(); slash = null; }
-function slashItems(){ const q = slash.q.toLowerCase(); return SLASH.filter(i => !q || (i.k+" "+i.kw).toLowerCase().includes(q)); }
+function slashItems(){ const q = slash.q.toLowerCase(); return SLASH.filter(i => (!i.page || (ned && E() === ned)) && (!q || (i.k+" "+i.kw).toLowerCase().includes(q))); }
 function drawSlash(){
   const items = slashItems();
   if(!items.length){ closeSlash(); return; }
@@ -1184,17 +1243,18 @@ function drawSlash(){
   slash.el.querySelectorAll(".it").forEach(el => {
     el.onmousedown = e => { e.preventDefault(); slash.sel = +el.dataset.n; pickSlash(); };
   });
-  const r = ed.view.coordsAtPos(slash.from);
+  const r = E().view.coordsAtPos(slash.from);
   const top = r.bottom + 6 + 320 > innerHeight ? r.top - 6 - Math.min(320, slash.el.offsetHeight || 320) : r.bottom + 6;
   Object.assign(slash.el.style, {left: Math.min(r.left, innerWidth-250)+"px", top: top+"px"});
 }
 function pickSlash(){
-  const it = slashItems()[slash.sel]; const from = slash.from, to = ed.state.selection.from;
+  const it = slashItems()[slash.sel]; const from = slash.from, to = E().state.selection.from;
   closeSlash();
-  it.run(ed.chain().focus().deleteRange({from, to})).run();
+  if(it.page){ E().chain().focus().deleteRange({from, to}).run(); notePage(NS.cur); return; }
+  it.run(E().chain().focus().deleteRange({from, to})).run();
 }
 function checkSlash(){
-  const {state} = ed, {from, empty} = state.selection;
+  const {state} = E(), {from, empty} = state.selection;
   if(!empty){ closeSlash(); return; }
   const $p = state.selection.$from, before = $p.parent.textBetween(0, $p.parentOffset, null, "\ufffc");
   const m = before.match(/(?:^|\s)\/([\w ]{0,20})$/);
@@ -1206,25 +1266,31 @@ function checkSlash(){
 }
 let bubble = null;
 function drawBubble(){
-  const {from, to, empty} = ed.state.selection;
-  if(empty || !ed.isFocused || ed.isActive("codeBlock")){ bubble?.remove(); bubble = null; return; }
+  const {from, to, empty} = E().state.selection;
+  if(empty || !E().isFocused || E().isActive("codeBlock")){ bubble?.remove(); bubble = null; return; }
   if(!bubble){ bubble = document.createElement("div"); bubble.className = "bubble"; document.body.appendChild(bubble); }
   const B = [["<b>B</b>","bold",c=>c.toggleBold()],["<i>i</i>","italic",c=>c.toggleItalic()],["<s>S</s>","strike",c=>c.toggleStrike()],
              ["<code>&lt;&gt;</code>","code",c=>c.toggleCode()],["<mark>H</mark>","highlight",c=>c.toggleHighlight()],["🔗","link",null]];
-  bubble.innerHTML = B.map((b,i)=>`<button data-i="${i}" class="${ed.isActive(b[1])?"on":""}">${b[0]}</button>`).join("");
+  bubble.innerHTML = B.map((b,i)=>`<button data-i="${i}" class="${E().isActive(b[1])?"on":""}">${b[0]}</button>`).join("");
   bubble.querySelectorAll("button").forEach(btn => btn.onmousedown = e => {
     e.preventDefault(); const b = B[+btn.dataset.i];
     if(b[1]==="link"){
-      if(ed.isActive("link")) ed.chain().focus().unsetLink().run();
-      else { const u = prompt("Link"); if(u) ed.chain().focus().setLink({href: /^https?:/.test(u)?u:"https://"+u}).run(); }
-    } else b[2](ed.chain().focus()).run();
+      if(E().isActive("link")) E().chain().focus().unsetLink().run();
+      else { const u = prompt("Link"); if(u) E().chain().focus().setLink({href: /^https?:/.test(u)?u:"https://"+u}).run(); }
+    } else b[2](E().chain().focus()).run();
     drawBubble();
   });
-  const a = ed.view.coordsAtPos(from), z = ed.view.coordsAtPos(to);
+  const a = E().view.coordsAtPos(from), z = E().view.coordsAtPos(to);
   const w = bubble.offsetWidth || 220;
   Object.assign(bubble.style, {left: Math.max(8, Math.min((a.left+z.left)/2 - w/2, innerWidth-w-8))+"px", top: Math.max(8, a.top - 44)+"px"});
 }
-function destroyNotes(){ closeSlash(); bubble?.remove(); bubble = null; ed?.destroy(); ed = null; }
+function destroyNotes(){ closeSlash(); bubble?.remove(); bubble = null; if(curEd === ed) curEd = null; ed?.destroy(); ed = null; }
+const slashKeys = () => T.Extension.create({ name:"slashKeys", priority:1000, addKeyboardShortcuts(){ return {
+  ArrowDown: () => { if(!slash) return false; slash.sel = (slash.sel+1) % slashItems().length; drawSlash(); return true; },
+  ArrowUp:   () => { if(!slash) return false; const n = slashItems().length; slash.sel = (slash.sel-1+n) % n; drawSlash(); return true; },
+  Enter:     () => { if(!slash) return false; pickSlash(); return true; },
+  Escape:    () => { if(!slash) return false; closeSlash(); escEaten = true; return true; },
+}; }});
 async function mountNotes(c){
   destroyNotes();
   const host = document.getElementById("notes");
@@ -1239,16 +1305,12 @@ async function mountNotes(c){
       T.Highlight,
       T.Placeholder.configure({placeholder: ({editor}) => editor.isEmpty ? "Notes" : "", showOnlyCurrent:true}),
       T.Markdown.configure({html:false, transformPastedText:true, transformCopiedText:false}),
-      T.Extension.create({ name:"slashKeys", priority:1000, addKeyboardShortcuts(){ return {
-        ArrowDown: () => { if(!slash) return false; slash.sel = (slash.sel+1) % slashItems().length; drawSlash(); return true; },
-        ArrowUp:   () => { if(!slash) return false; const n = slashItems().length; slash.sel = (slash.sel-1+n) % n; drawSlash(); return true; },
-        Enter:     () => { if(!slash) return false; pickSlash(); return true; },
-        Escape:    () => { if(!slash) return false; closeSlash(); escEaten = true; return true; },
-      }; }}),
+      slashKeys(),
     ],
     content: c.notes || "",
-    onUpdate: ({editor}) => { (board.cards.find(x => x.id === c.id) || c).notes = editor.storage.markdown.getMarkdown(); save(); checkSlash(); },
-    onSelectionUpdate: () => { checkSlash(); drawBubble(); },
+    onUpdate: ({editor}) => { (board.cards.find(x => x.id === c.id) || c).notes = editor.storage.markdown.getMarkdown(); save(); if(E() === ed) checkSlash(); },
+    onFocus: () => { curEd = ed; },
+    onSelectionUpdate: () => { if(E() !== ed) return; checkSlash(); drawBubble(); },
     onBlur: () => { setTimeout(()=>{ if(ed && !ed.isFocused){ closeSlash(); bubble?.remove(); bubble = null; } }, 120); },
   });
   host.onclick = e => {
@@ -1706,6 +1768,285 @@ async function mountAgent(c){
   agentTimer = setInterval(load, 3000);
 }
 
+/* ---------- notes workspace: a button you drag anywhere; click it for tabs of markdown pages, pages inside pages ---------- */
+const NS = (() => { try { return JSON.parse(localStorage.getItem("notesUI") || "{}") || {}; } catch(e) { return {}; } })();
+NS.tabs = Array.isArray(NS.tabs) ? NS.tabs : []; NS.fold = NS.fold || {}; if(NS.side === undefined) NS.side = innerWidth > 700;
+const saveNS = () => { try { localStorage.setItem("notesUI", JSON.stringify(NS)); } catch(e) {} };
+let notes = {pages:{}, deleted:{}}, notesVer = null, notesDirty = false, notesT = null, ned = null, nedPage = null, ndrag = null;
+const NP = () => notes.pages;
+const nlive = id => !!NP()[id] && !notes.deleted[id];
+const kidsOf = pid => Object.values(NP()).filter(p => (p.parent || null) === (pid || null) && !notes.deleted[p.id]).sort((a,b) => (a.order||0) - (b.order||0) || (a.created||0) - (b.created||0));
+const ptitle = p => (p && p.title && p.title.trim()) || "Untitled";
+const DOC_IC = `<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13"/></svg>`;
+const BIN_IC = `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/></svg>`;
+const NOTE_IC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h5"/></svg>`;
+
+// a page edited here and elsewhere at once: the newer copy of each page wins; a deleted page stays deleted
+function mergeNotes(server){
+  const deleted = {...(server.deleted || {}), ...notes.deleted}, pages = {};
+  for(const id of new Set([...Object.keys(server.pages || {}), ...Object.keys(notes.pages)])){
+    const a = notes.pages[id], b = (server.pages || {})[id];
+    const w = !a ? b : !b ? a : (a.updated || 0) >= (b.updated || 0) ? a : b;
+    if(w && !deleted[id]) pages[id] = w;
+  }
+  return {pages, deleted};
+}
+async function loadNotes(){
+  try{
+    const r = await fetch("/api/notes"); const d = await r.json(); const v = r.headers.get("X-Version");
+    if(v === notesVer) return false;
+    notes = notesDirty ? mergeNotes(d) : {pages: d.pages || {}, deleted: d.deleted || {}}; notesVer = v; return true;
+  }catch(e){ return false; }
+}
+function saveNotes(){ notesDirty = true; clearTimeout(notesT); notesT = setTimeout(pushNotes, 400); }
+async function pushNotes(tries = 0){
+  clearTimeout(notesT);
+  try{
+    const r = await fetch("/api/notes", {method:"PUT", headers:{"Content-Type":"application/json", "X-Version": notesVer || ""}, body: JSON.stringify(notes)});
+    if(r.status === 409 && tries < 5){
+      const s = await fetch("/api/notes"); notesVer = s.headers.get("X-Version"); notes = mergeNotes(await s.json());
+      renderNTabs(); renderNSide(); return pushNotes(tries + 1);
+    }
+    if(!r.ok) throw new Error("save failed");
+    notesVer = r.headers.get("X-Version") || notesVer; notesDirty = false;
+  }catch(e){
+    if(tries < 12){ notesT = setTimeout(() => pushNotes(tries + 1), 5000); return; }
+    alert("Your notes did NOT save. Keep this tab open and tell Claude.");
+  }
+}
+
+const nb = document.createElement("button"); nb.id = "nb"; nb.title = "Notes (drag to move)"; nb.innerHTML = NOTE_IC;
+const np = document.createElement("div"); np.id = "np"; np.hidden = true;
+np.innerHTML = `<div class="np-head"><button class="np-ib" data-a="side" title="Show or hide the page list">☰</button><div class="np-tabs"></div><button class="np-ib" data-a="new" title="New page">+</button><span class="np-drag"></span><button class="np-ib" data-a="close" title="Close (Esc)">✕</button></div>
+<div class="np-body"><nav class="np-side"><div class="np-sh">Pages<button class="np-ib" data-a="new" title="New page">+</button></div><div class="np-tree"></div></nav>
+<main class="np-main"><div class="np-crumbs"></div><input class="np-title" placeholder="Untitled" spellcheck="false"><div class="np-ed nted"></div><div class="np-kids"></div><div class="np-empty"></div></main></div><div class="np-grip" title="Drag to resize"></div>`;
+document.body.append(nb, np);
+const nq = s => np.querySelector(s), ntitle = nq(".np-title"), nmain = nq(".np-main"), ntree = nq(".np-tree");
+
+// where it sits: the button anywhere on screen; the open workspace grows out of it toward the roomier side
+const clampN = (v, lo, hi) => Math.max(lo, Math.min(v, Math.max(lo, hi)));
+const small = () => innerWidth <= 700;
+function placeNb(){
+  const b = NS.b || {x: innerWidth - 70, y: innerHeight - 70};
+  b.x = clampN(b.x, 8, innerWidth - 52); b.y = clampN(b.y, 8, innerHeight - 52); NS.b = b;
+  nb.style.left = b.x + "px"; nb.style.top = b.y + "px";
+}
+function placeNp(){
+  if(small()){ np.removeAttribute("style"); return; }
+  const b = NS.b, w = clampN(NS.w || 820, 380, innerWidth - 16), h = clampN(NS.h || 600, 300, innerHeight - 16);
+  const x = b.x + 22 > innerWidth / 2 ? b.x + 44 - w : b.x, y = b.y + 22 > innerHeight / 2 ? b.y + 44 - h : b.y;
+  Object.assign(np.style, {width: w + "px", height: h + "px", left: clampN(x, 8, innerWidth - w - 8) + "px", top: clampN(y, 8, innerHeight - h - 8) + "px"});
+}
+// the button where the workspace says it is, so moving one moves the other
+function nbFromNp(){
+  const r = np.getBoundingClientRect();
+  NS.b = {x: r.left + r.width / 2 > innerWidth / 2 ? r.right - 44 : r.left, y: r.top + r.height / 2 > innerHeight / 2 ? r.bottom - 44 : r.top};
+}
+function dragN(el, start, move, click){
+  el.addEventListener("pointerdown", e => {
+    if(e.button !== 0 || start(e) === false) return;
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY; let moved = false;
+    const mv = ev => { const dx = ev.clientX - sx, dy = ev.clientY - sy; if(!moved && Math.hypot(dx, dy) < 4) return; moved = true; move(dx, dy); };
+    const up = () => { removeEventListener("pointermove", mv); removeEventListener("pointerup", up); if(moved) saveNS(); else click?.(); };
+    addEventListener("pointermove", mv); addEventListener("pointerup", up);
+  });
+}
+let n0 = null;
+dragN(nb, () => { n0 = {...NS.b}; }, (dx, dy) => { NS.b = {x: n0.x + dx, y: n0.y + dy}; placeNb(); }, () => openNotes());
+dragN(nq(".np-head"), e => { if(small() || e.target.closest("button, .np-tab")) return false; const r = np.getBoundingClientRect(); n0 = {x: r.left, y: r.top}; },
+  (dx, dy) => { np.style.left = clampN(n0.x + dx, 8, innerWidth - np.offsetWidth - 8) + "px"; np.style.top = clampN(n0.y + dy, 8, innerHeight - np.offsetHeight - 8) + "px"; nbFromNp(); placeNb(); });
+dragN(nq(".np-grip"), () => { if(small()) return false; const r = np.getBoundingClientRect(); n0 = {w: r.width, h: r.height, x: r.left, y: r.top}; },
+  (dx, dy) => { NS.w = clampN(n0.w + dx, 380, innerWidth - n0.x - 8); NS.h = clampN(n0.h + dy, 300, innerHeight - n0.y - 8); np.style.width = NS.w + "px"; np.style.height = NS.h + "px"; nbFromNp(); placeNb(); });
+addEventListener("resize", () => { placeNb(); if(!np.hidden) placeNp(); });
+placeNb();
+
+async function openNotes(){
+  nb.hidden = true; np.hidden = false; placeNp();
+  if(small() && NS.cur) NS.side = false;   // on the phone the page comes first; ☰ shows the list
+  await Promise.all([loadNotes(), mountNed()]);
+  renderNotes();
+  if(!NS.cur && kidsOf(null).length === 0) return;
+  if(NS.cur && !ntitle.value) ntitle.focus();
+}
+function closeNotes(){
+  if(notesDirty) pushNotes();
+  closeSlash(); bubble?.remove(); bubble = null;
+  np.hidden = true; nb.hidden = false; placeNb(); saveNS();
+}
+np.addEventListener("keydown", e => {
+  if(e.key !== "Escape") return;
+  e.stopPropagation();                       // never closes the card behind it
+  if(escEaten){ escEaten = false; return; }  // Esc closed the / menu
+  closeNotes();
+});
+np.addEventListener("click", e => {
+  const a = e.target.closest("[data-a]")?.dataset.a;
+  if(a === "close") closeNotes();
+  else if(a === "new") notePage(null);
+  else if(a === "side"){ NS.side = !NS.side; saveNS(); renderNSide(); }
+});
+nmain.addEventListener("scroll", () => { slash && drawSlash(); bubble && drawBubble(); }, {passive:true});
+
+async function mountNed(){
+  if(ned) return;
+  await loadT();
+  if(ned) return;
+  const host = nq(".np-ed");
+  ned = new T.Editor({
+    element: host,
+    extensions: [
+      T.StarterKit.configure({heading:{levels:[1,2,3]}}),
+      T.TaskList, T.TaskItem.configure({nested:true}),
+      T.Link.configure({openOnClick:false, autolink:true}),
+      T.Highlight,
+      T.Placeholder.configure({placeholder: ({editor}) => editor.isEmpty ? "Write, or type / for headings, to-dos and pages inside this one" : "", showOnlyCurrent:true}),
+      T.Markdown.configure({html:false, transformPastedText:true, transformCopiedText:false}),
+      slashKeys(),
+    ],
+    content: "",
+    onUpdate: ({editor}) => { const p = NP()[nedPage]; if(!p) return; p.body = editor.storage.markdown.getMarkdown(); p.updated = Date.now(); saveNotes(); if(curEd === ned) checkSlash(); },
+    onFocus: () => { curEd = ned; },
+    onSelectionUpdate: () => { if(curEd !== ned) return; checkSlash(); drawBubble(); },
+    onBlur: () => { setTimeout(() => { if(ned && !ned.isFocused){ closeSlash(); bubble?.remove(); bubble = null; } }, 120); },
+  });
+  host.onclick = e => {
+    const a = e.target.closest?.("a[href]");
+    if(a && host.contains(a)){ e.preventDefault(); window.open(a.href, "_blank", "noopener"); return; }
+    if(e.target === host) ned.commands.focus("end");
+  };
+}
+
+function renderNotes(){ renderNTabs(); renderNSide(); renderNMain(); }
+function renderNTabs(){
+  NS.tabs = NS.tabs.filter(nlive);
+  if(NS.cur && !nlive(NS.cur)) NS.cur = NS.tabs.at(-1) || null;
+  const el = nq(".np-tabs");
+  el.innerHTML = NS.tabs.map(id => { const t = esc(ptitle(NP()[id])); return `<div class="np-tab${id === NS.cur ? " on" : ""}" data-id="${id}" title="${t}"><span>${t}</span><button class="np-tx" title="Close tab">✕</button></div>`; }).join("");
+  el.querySelectorAll(".np-tab").forEach(t => {
+    t.onclick = e => { if(e.target.closest(".np-tx")) closeNTab(t.dataset.id); else openNTab(t.dataset.id); };
+    t.onauxclick = e => { if(e.button === 1) closeNTab(t.dataset.id); };
+  });
+  el.querySelector(".on")?.scrollIntoView({block:"nearest", inline:"nearest"});
+}
+const isUnder = (id, anc) => { for(let p = NP()[id]; p; p = NP()[p.parent]) if(p.id === anc) return true; return false; };
+function renderNSide(){
+  np.classList.toggle("noside", !NS.side);
+  const row = (p, depth) => {
+    const kids = kidsOf(p.id), open = !NS.fold[p.id];
+    return `<div class="np-row${p.id === NS.cur ? " on" : ""}" draggable="true" data-id="${p.id}" style="padding-left:${4 + depth * 14}px">`
+      + `<button class="np-car" data-a="fold" ${kids.length ? "" : "disabled"}>${kids.length ? (open ? "▾" : "▸") : ""}</button><span class="np-ric">${DOC_IC}</span>`
+      + `<span class="np-rt">${esc(ptitle(p))}</span><button class="np-ib" data-a="add" title="Add a page inside">+</button><button class="np-ib" data-a="del" title="Delete page">${BIN_IC}</button></div>`
+      + (open ? kids.map(k => row(k, depth + 1)).join("") : "");
+  };
+  const tops = kidsOf(null);
+  ntree.innerHTML = tops.length ? tops.map(p => row(p, 0)).join("") : `<div class="np-none">No pages yet</div>`;
+  ntree.querySelectorAll(".np-row").forEach(r => {
+    const id = r.dataset.id;
+    r.onclick = e => {
+      const a = e.target.closest("[data-a]")?.dataset.a;
+      if(a === "fold"){ e.stopPropagation(); NS.fold[id] = !NS.fold[id]; saveNS(); renderNSide(); }
+      else if(a === "add"){ e.stopPropagation(); notePage(id); }
+      else if(a === "del"){ e.stopPropagation(); delNPage(id); }
+      else { openNTab(id); if(small()){ NS.side = false; renderNSide(); } }
+    };
+    // drag a page onto another to put it inside; onto the top or bottom edge to put it before or after
+    r.ondragstart = e => { ndrag = id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", id); };
+    r.ondragend = () => { ndrag = null; ntree.querySelectorAll(".np-row").forEach(x => x.classList.remove("drop-in", "drop-before", "drop-after")); };
+    r.ondragover = e => {
+      if(!ndrag || ndrag === id || isUnder(id, ndrag)) return;
+      e.preventDefault(); e.stopPropagation();
+      const b = r.getBoundingClientRect(), f = (e.clientY - b.top) / b.height;
+      r.dataset.zone = f < .28 ? "before" : f > .72 ? "after" : "in";
+      r.classList.remove("drop-in", "drop-before", "drop-after"); r.classList.add("drop-" + r.dataset.zone);
+    };
+    r.ondragleave = () => r.classList.remove("drop-in", "drop-before", "drop-after");
+    r.ondrop = e => { e.preventDefault(); e.stopPropagation(); if(ndrag && ndrag !== id && !isUnder(id, ndrag)) moveNPage(ndrag, id, r.dataset.zone || "in"); };
+  });
+  ntree.ondragover = e => { if(ndrag) e.preventDefault(); };
+  ntree.ondrop = e => { e.preventDefault(); if(ndrag) moveNPage(ndrag, null, "end"); };
+}
+function moveNPage(id, ref, zone){
+  const p = NP()[id], now = Date.now();
+  if(zone === "in" || zone === "end"){ const sib = kidsOf(ref).filter(x => x.id !== id); p.parent = ref || null; p.order = (sib.at(-1)?.order || 0) + 1; if(ref) NS.fold[ref] = false; }
+  else {
+    const parent = NP()[ref].parent || null, sib = kidsOf(parent).filter(x => x.id !== id);
+    sib.splice(sib.findIndex(x => x.id === ref) + (zone === "after" ? 1 : 0), 0, p);
+    p.parent = parent;
+    sib.forEach((x, i) => { if(x.order !== i + 1 || x === p){ x.order = i + 1; x.updated = now; } });
+  }
+  p.updated = now; saveNotes(); saveNS(); renderNotes();
+}
+function renderNMain(){
+  const p = NS.cur && NP()[NS.cur];
+  nmain.classList.toggle("blank", !p);
+  if(!p){
+    nedPage = null;
+    const tops = kidsOf(null), em = nq(".np-empty");
+    em.innerHTML = tops.length
+      ? `<div class="np-et">Your pages</div>${tops.map(x => `<div class="np-kid" data-id="${x.id}">${DOC_IC}<span>${esc(ptitle(x))}</span></div>`).join("")}<button class="np-add" data-a="new">+ New page</button>`
+      : `<div class="np-et">Notes</div><div class="np-es">Pages are markdown. Type / for headings, to-dos, quotes and code, or to put a page inside the one you're on.</div><button class="np-btn" data-a="new">New page</button>`;
+    em.querySelectorAll(".np-kid").forEach(k => k.onclick = () => openNTab(k.dataset.id));
+    return;
+  }
+  const chain = []; for(let a = NP()[p.parent]; a; a = NP()[a.parent]) chain.unshift(a);
+  const cr = nq(".np-crumbs");
+  cr.innerHTML = chain.map(a => `<a data-id="${a.id}">${esc(ptitle(a))}</a><span>/</span>`).join("");
+  cr.querySelectorAll("a").forEach(a => a.onclick = () => openNTab(a.dataset.id));
+  if(document.activeElement !== ntitle) ntitle.value = p.title || "";
+  if(ned && nedPage !== p.id){ nedPage = p.id; ned.commands.setContent(p.body || "", false); nmain.scrollTop = 0; }
+  const kids = kidsOf(p.id), kd = nq(".np-kids");
+  kd.innerHTML = (kids.length ? `<div class="np-kh">Pages inside</div>` + kids.map(k => `<div class="np-kid" data-id="${k.id}">${DOC_IC}<span>${esc(ptitle(k))}</span></div>`).join("") : "")
+    + `<button class="np-add" data-a="kid">+ Add a page inside</button>`;
+  kd.querySelectorAll(".np-kid").forEach(k => k.onclick = () => openNTab(k.dataset.id));
+  kd.querySelector('[data-a="kid"]').onclick = e => { e.stopPropagation(); notePage(p.id); };
+}
+ntitle.oninput = () => {
+  const p = NP()[NS.cur]; if(!p) return;
+  p.title = ntitle.value; p.updated = Date.now(); saveNotes(); renderNTabs(); renderNSide();
+};
+ntitle.onkeydown = e => {
+  if(!ned || !(e.key === "Enter" || (e.key === "ArrowDown" && !e.shiftKey))) return;
+  e.preventDefault();
+  ned.commands.setTextSelection(1); ned.view.focus();   // now, not on the next frame: the next keys belong in the page
+};
+
+function notePage(parent = null){
+  const id = "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), now = Date.now();
+  NP()[id] = {id, title: "", body: "", parent: parent || null, order: (kidsOf(parent).at(-1)?.order || 0) + 1, created: now, updated: now};
+  if(parent){ NS.fold[parent] = false; NP()[parent].updated = Math.max(NP()[parent].updated || 0, now - 1); }
+  saveNotes(); openNTab(id);
+  ntitle.focus();   // at once, so the next keys (a space too) go into the title, not the button you clicked
+}
+function openNTab(id){
+  if(!NS.tabs.includes(id)){ const i = NS.tabs.indexOf(NS.cur); NS.tabs.splice(i < 0 ? NS.tabs.length : i + 1, 0, id); }
+  NS.cur = id; saveNS(); renderNotes();
+}
+function closeNTab(id){
+  const i = NS.tabs.indexOf(id); if(i < 0) return;
+  NS.tabs.splice(i, 1);
+  if(NS.cur === id) NS.cur = NS.tabs[Math.min(i, NS.tabs.length - 1)] || null;
+  saveNS(); renderNotes();
+}
+function delNPage(id){
+  const all = [id];
+  for(let k = 0; k < all.length; k++) all.push(...kidsOf(all[k]).map(x => x.id));
+  const written = all.some(x => (NP()[x].body || "").trim() || (NP()[x].title || "").trim());
+  const more = all.length - 1;
+  if(written && !confirm(`Delete "${ptitle(NP()[id])}"${more ? ` and the ${more} page${more > 1 ? "s" : ""} inside it` : ""}?`)) return;
+  const now = Date.now();
+  for(const x of all){ notes.deleted[x] = now; delete NP()[x]; }
+  saveNotes(); renderNotes();
+}
+// changes made on another device (or another board tab) show up while it's open
+setInterval(async () => {
+  if(np.hidden || notesDirty || document.hidden) return;
+  const cur = NS.cur && NP()[NS.cur] && JSON.stringify(NP()[NS.cur]);
+  if(!(await loadNotes())) return;
+  if(NS.cur && NP()[NS.cur] && JSON.stringify(NP()[NS.cur]) !== cur && !ned?.isFocused) nedPage = null;
+  renderNotes();
+}, 5000);
+
 /* ---------- wiring ---------- */
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => { view = t.dataset.v; try{ localStorage.setItem("view", view); }catch(e){} render(); if(view === "studio") loadStudio(); if(view === "auto") pollAutos(); });
 try{ const v = localStorage.getItem("view"); if(v === "studio" || v === "auto") view = v; }catch(e){}
@@ -1723,7 +2064,7 @@ async function pollBoard(){
     const r = await fetch("/api/board"); const v = r.headers.get("X-Version");
     if(v && v !== ver && !openId && !holding() && !dirty){ board = await r.json(); ver = v; normalize(); snap(); render(); }
     const b = r.headers.get("X-Build");
-    if(build && b && b !== build && !openId && !dirty) location.reload();   // page was updated -> load the new code
+    if(build && b && b !== build && !openId && !dirty && !notesDirty && np.hidden) location.reload();   // page was updated -> load the new code
     build = build || b;
   }catch(e){}
 }
